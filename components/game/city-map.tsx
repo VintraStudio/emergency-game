@@ -11,6 +11,8 @@ import type {
   CityConfig,
 } from "@/lib/game-types"
 import { BUILDING_CONFIGS, MISSION_CONFIGS } from "@/lib/game-types"
+import "leaflet/dist/leaflet.css"
+import "./city-map.css"
 
 interface CityMapProps {
   city: CityConfig
@@ -27,61 +29,58 @@ interface CityMapProps {
 function buildingIconHtml(color: string, level: number, size: number) {
   return `<div style="
     width:${size}px;height:${size}px;
-    background:hsl(220,18%,14%);
+    background:rgba(14,16,24,0.85);
     border:2px solid ${color};
-    border-radius:6px;
+    border-radius:10px;
     box-shadow:0 0 12px ${color}44;
     display:flex;align-items:center;justify-content:center;
     cursor:pointer;position:relative;
   ">
-    <div style="width:8px;height:8px;background:${color};border-radius:50%;"></div>
+    <div style="width:8px;height:8px;background:${color};border-radius:999px;"></div>
     ${
       level > 1
         ? `<div style="
-      position:absolute;top:2px;right:2px;
-      width:10px;height:10px;
-      background:${color};border-radius:50%;
-      font-size:7px;color:#fff;
-      display:flex;align-items:center;justify-content:center;
-      font-weight:bold;
-    ">${level}</div>`
+          position:absolute;top:4px;right:4px;
+          min-width:16px;height:16px;padding:0 4px;
+          background:${color};
+          border-radius:999px;
+          font-size:10px;line-height:16px;color:#0b0d12;
+          display:flex;align-items:center;justify-content:center;
+          font-weight:800;
+        ">${level}</div>`
         : ""
     }
   </div>`
 }
 
-function missionIconHtml(
-  color: string,
-  isPending: boolean,
-  urgencyRatio: number,
-) {
-  const borderColor =
-    urgencyRatio > 0.5
-      ? "#4ade80"
-      : urgencyRatio > 0.25
-        ? "#ddaa22"
-        : "#e04444"
-  return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+function missionIconHtml(color: string, isPending: boolean, urgencyRatio: number) {
+  const barColor =
+    urgencyRatio > 0.5 ? "#4ade80" : urgencyRatio > 0.25 ? "#f59e0b" : "#ef4444"
+
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
     <div style="
       width:26px;height:26px;
-      background:${isPending ? color : "hsl(220,14%,22%)"};
-      border:2px solid ${color};border-radius:50%;
-      opacity:${isPending ? 0.95 : 0.6};
+      background:${isPending ? color : "rgba(14,16,24,0.85)"};
+      border:2px solid ${color};border-radius:999px;
+      opacity:${isPending ? 0.95 : 0.65};
       display:flex;align-items:center;justify-content:center;
       ${isPending ? `box-shadow:0 0 14px ${color}66;animation:pulse 2s ease-in-out infinite;` : ""}
       cursor:pointer;
     ">
-      <div style="width:10px;height:10px;background:${isPending ? "#1a1e2e" : color};border-radius:50%;"></div>
+      <div style="width:10px;height:10px;background:${isPending ? "#0b0d12" : color};border-radius:999px;"></div>
     </div>
     ${
       isPending
         ? `<div style="
-      width:22px;height:3px;
-      background:rgba(0,0,0,0.5);border-radius:2px;overflow:hidden;
-    "><div style="
-      width:${urgencyRatio * 100}%;height:100%;
-      background:${borderColor};border-radius:2px;
-    "></div></div>`
+          width:26px;height:4px;
+          background:rgba(255,255,255,0.12);
+          border-radius:999px;overflow:hidden;
+        "><div style="
+          width:${Math.max(0, Math.min(100, urgencyRatio * 100))}%;
+          height:100%;
+          background:${barColor};
+          border-radius:999px;
+        "></div></div>`
         : ""
     }
   </div>`
@@ -91,8 +90,8 @@ function vehicleIconHtml(color: string, isWorking: boolean) {
   const size = isWorking ? 14 : 10
   return `<div style="
     width:${size}px;height:${size}px;
-    background:${isWorking ? color : "hsl(220,18%,14%)"};
-    border:2px solid ${color};border-radius:50%;
+    background:${isWorking ? color : "rgba(14,16,24,0.85)"};
+    border:2px solid ${color};border-radius:999px;
     box-shadow:0 0 8px ${color}66;
     ${isWorking ? "animation:pulse 1.5s ease-in-out infinite;" : ""}
   "></div>`
@@ -101,11 +100,14 @@ function vehicleIconHtml(color: string, isWorking: boolean) {
 function placementIconHtml(color: string) {
   return `<div style="
     width:32px;height:32px;
-    background:${color}33;
+    background:${color}22;
     border:2px dashed ${color};
-    border-radius:6px;pointer-events:none;
+    border-radius:10px;
+    pointer-events:none;
+    box-shadow:0 0 16px ${color}44;
   "></div>`
 }
+
 
 export function CityMap({
   city,
@@ -161,7 +163,6 @@ export function CityMap({
 
     async function init() {
       const leaflet = (await import("leaflet")).default
-      await import("leaflet/dist/leaflet.css")
 
       if (cancelled || !containerRef.current) return
       leafletRef.current = leaflet
@@ -199,7 +200,7 @@ export function CityMap({
       map.on("mousemove", (e) => {
         if (!placingRef.current || !leafletRef.current) return
         const ll = leafletRef.current
-        const color = BUILDING_CONFIGS[placingRef.current].color
+        const color = "#ffffff"
         const icon = ll.divIcon({
           className: "",
           iconSize: [32, 32],
@@ -248,14 +249,14 @@ export function CityMap({
     layer.clearLayers()
 
     for (const building of buildings) {
-      const config = BUILDING_CONFIGS[building.type]
+      const color = "#ffffff"
       const size = 28 + (building.level - 1) * 6
       const marker = ll.marker([building.position.lat, building.position.lng], {
         icon: ll.divIcon({
           className: "",
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
-          html: buildingIconHtml(config.color, building.level),
+          html: buildingIconHtml(color, building.level, size),
         }),
         zIndexOffset: 100,
       })
@@ -285,7 +286,7 @@ export function CityMap({
     )
 
     for (const mission of active) {
-      const config = MISSION_CONFIGS[mission.type]
+      const color = "#ffffff"
       const isPending = mission.status === "pending"
       const urgencyRatio = mission.timeRemaining / mission.timeLimit
 
@@ -294,7 +295,7 @@ export function CityMap({
           className: "",
           iconSize: [28, 36],
           iconAnchor: [14, 36],
-          html: missionIconHtml(config.color, isPending, urgencyRatio),
+          html: missionIconHtml(color, isPending, urgencyRatio),
         }),
         zIndexOffset: 200,
       })
@@ -325,7 +326,7 @@ export function CityMap({
     for (const v of activeVehicles) {
       const building = buildings.find((b) => b.id === v.buildingId)
       const config = building ? BUILDING_CONFIGS[building.type] : null
-      const color = config?.color || "#4ade80"
+      const color = "#ffffff"
       const isWorking = v.status === "working"
       const size = isWorking ? 14 : 10
 
@@ -357,14 +358,14 @@ export function CityMap({
   }, [vehicles, buildings, ready])
 
   return (
-    <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
-      <div ref={containerRef} className="h-full w-full" />
+    <div className="city-map-container">
+      <div ref={containerRef} className="city-map-wrapper" />
 
       {!ready && (
-        <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-background">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <span className="text-sm text-muted-foreground">
+        <div className="city-map-loading">
+          <div className="city-map-loading-content">
+            <div className="city-map-spinner" />
+            <span className="city-map-loading-text">
               Loading map...
             </span>
           </div>
@@ -372,15 +373,15 @@ export function CityMap({
       )}
 
       {placingBuilding && ready && (
-        <div className="absolute left-1/2 top-4 z-[1000] -translate-x-1/2 rounded-md border border-primary/30 bg-card/90 px-4 py-2 text-sm font-medium text-primary backdrop-blur-sm">
-          Click on the map to place{" "}
+        <div className="city-map-placement-hint">
+          Click on map to place{" "}
           {BUILDING_CONFIGS[placingBuilding].name} -- Double-click buildings
           to manage
         </div>
       )}
 
       {buildings.length === 0 && !placingBuilding && ready && (
-        <div className="absolute left-1/2 top-4 z-[1000] -translate-x-1/2 rounded-md border border-border bg-card/90 px-4 py-2 text-xs text-muted-foreground backdrop-blur-sm">
+        <div className="city-map-empty-hint">
           Scroll to zoom, drag to pan -- Double-click a placed building to
           manage it
         </div>

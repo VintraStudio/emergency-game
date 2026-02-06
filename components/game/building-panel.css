@@ -1,0 +1,242 @@
+/* building-panel.css */
+
+.building-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+
+  padding: 12px;
+  gap: 10px;
+
+  background: transparent;
+}
+
+/* Header */
+.building-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(0,0,0,0.18);
+}
+
+.building-panel-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.92);
+}
+
+/* List */
+.building-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+
+  padding: 4px;
+}
+
+/* Card item (detail header card) */
+.building-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 12px;
+  border-radius: 16px;
+
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+}
+
+.building-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.building-item-name {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: rgba(255,255,255,0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.text-muted-foreground {
+  color: rgba(240,244,255,0.60);
+}
+
+/* Stats row */
+.building-item-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.building-item-level {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+
+  padding: 10px 12px;
+  border-radius: 14px;
+
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.building-item-vehicles-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.text-foreground {
+  color: rgba(255,255,255,0.90);
+}
+
+.font-medium {
+  font-weight: 700;
+}
+
+/* Buttons */
+.building-button {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  padding: 10px 12px;
+  border-radius: 14px;
+
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.88);
+
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+
+  cursor: pointer;
+  transition: transform 120ms ease, background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.building-button:hover {
+  transform: translateY(-1px);
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: 0 14px 30px rgba(0,0,0,0.30);
+}
+
+.building-button:active {
+  transform: translateY(0px);
+}
+
+.building-button:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px hsl(var(--primary) / 0.18),
+    0 14px 30px rgba(0,0,0,0.30);
+  border-color: hsl(var(--primary) / 0.35);
+}
+
+.building-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Variants */
+.building-button.primary {
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.95), hsl(var(--primary) / 0.75));
+  border-color: hsl(var(--primary) / 0.55);
+  color: rgba(10, 12, 18, 0.92);
+  box-shadow: 0 18px 45px hsl(var(--primary) / 0.20);
+}
+
+.building-button.primary:hover {
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.98), hsl(var(--primary) / 0.78));
+}
+
+.building-button.danger {
+  background: linear-gradient(180deg, hsl(var(--destructive) / 0.95), hsl(var(--destructive) / 0.75));
+  border-color: hsl(var(--destructive) / 0.55);
+  color: rgba(255,255,255,0.92);
+  box-shadow: 0 18px 45px hsl(var(--destructive) / 0.18);
+}
+
+.building-button.danger:hover {
+  background: linear-gradient(180deg, hsl(var(--destructive) / 0.98), hsl(var(--destructive) / 0.78));
+}
+
+/* Icons */
+.building-button-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  opacity: 0.95;
+}
+
+/* Cost */
+.building-cost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.building-cost-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.10);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.building-cost-amount {
+  font-weight: 900;
+  color: hsl(var(--primary));
+}
+
+/* Scrollbar (nice but subtle) */
+.building-panel-list::-webkit-scrollbar {
+  width: 10px;
+}
+.building-panel-list::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.03);
+  border-radius: 999px;
+}
+.building-panel-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.10);
+  border-radius: 999px;
+  border: 2px solid rgba(0,0,0,0.25);
+}
+.building-panel-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.16);
+}

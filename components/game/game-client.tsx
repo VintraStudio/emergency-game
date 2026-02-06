@@ -9,9 +9,9 @@ import { MissionPanel } from "./mission-panel"
 import { BuildingManager } from "./building-manager"
 import { GameOver } from "./game-over"
 import { StartScreen } from "./start-screen"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Building2, Zap } from "lucide-react"
 import type { CityConfig } from "@/lib/game-types"
+import "./game-client.css"
 
 export function GameClient() {
   const state = useGameState()
@@ -49,26 +49,19 @@ export function GameClient() {
       }
     }
 
-    if (state.missions.length === 0) {
-      spawnMission()
-    }
-
-    const interval = 8000 + Math.random() * 7000
-    missionTimerRef.current = setInterval(spawnMission, interval)
+    const delay = Math.random() * 7000 + 8000 // 8-15 seconds
+    missionTimerRef.current = setInterval(spawnMission, delay)
 
     return () => {
       if (missionTimerRef.current) clearInterval(missionTimerRef.current)
     }
-  }, [started, state.isPaused, state.gameOver, state.missions, actions])
+  }, [started, state.isPaused, state.gameOver, actions])
 
-  const handleStart = useCallback(
-    (city: CityConfig) => {
-      actions.resetGame()
-      actions.setCity(city)
-      setStarted(true)
-    },
-    [actions],
-  )
+  const handleStart = useCallback((city: CityConfig) => {
+    actions.setCity(city)
+    actions.startGame()
+    setStarted(true)
+  }, [actions])
 
   const handleReset = useCallback(() => {
     actions.resetGame()
@@ -82,53 +75,55 @@ export function GameClient() {
   }
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    <div className="game-client">
       {/* Top HUD */}
-      <header className="shrink-0 border-b border-border bg-card/80 px-4 py-2 backdrop-blur-sm">
+      <header className="game-header">
         <GameHud state={state} onTogglePause={actions.togglePause} />
       </header>
 
       {/* Main Content */}
-      <div className="flex min-h-0 flex-1">
+      <div className="game-main-content">
         {/* Left Panel */}
-        <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-card/50 backdrop-blur-sm">
-          <Tabs defaultValue="build" className="flex h-full flex-col">
-            <TabsList className="mx-3 mt-3 grid w-auto grid-cols-2 bg-secondary/50">
-              <TabsTrigger value="build" className="gap-1.5 text-xs">
-                <Building2 className="h-3.5 w-3.5" />
+        <aside className="game-sidebar">
+          <div className="game-tabs">
+            <div className="game-tabs-list">
+              <button className={`game-tab ${!state.placingBuilding ? "active" : ""}`}>
+                <Building2 className="w-4 h-4" />
                 Build
-              </TabsTrigger>
-              <TabsTrigger value="missions" className="gap-1.5 text-xs">
-                <Zap className="h-3.5 w-3.5" />
+              </button>
+              <button className={`game-tab ${state.selectedMission ? "active" : ""}`}>
+                <Zap className="w-4 h-4" />
                 Missions
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="build" className="m-0 min-h-0 flex-1">
-              <BuildingPanel
-                money={state.money}
-                placingBuilding={state.placingBuilding}
-                onSetPlacing={actions.setPlacing}
-                selectedBuilding={state.selectedBuilding}
-                onUpgrade={actions.upgradeBuilding}
-                onSell={actions.sellBuilding}
-                onDeselect={() => actions.selectBuilding(null)}
-                onManage={actions.openBuildingManager}
-              />
-            </TabsContent>
-            <TabsContent value="missions" className="m-0 min-h-0 flex-1">
-              <MissionPanel
-                missions={state.missions}
-                selectedMission={state.selectedMission}
-                onSelectMission={actions.selectMission}
-                onDispatch={actions.dispatchVehicle}
-                buildingTypes={buildingTypes}
-              />
-            </TabsContent>
-          </Tabs>
+              </button>
+            </div>
+            <div className="m-0 min-h-0 flex-1">
+              {!state.placingBuilding && (
+                <BuildingPanel
+                  money={state.money}
+                  placingBuilding={state.placingBuilding}
+                  onSetPlacing={actions.setPlacing}
+                  selectedBuilding={state.selectedBuilding}
+                  onUpgrade={actions.upgradeBuilding}
+                  onSell={actions.sellBuilding}
+                  onDeselect={() => actions.selectBuilding(null)}
+                  onManage={actions.openBuildingManager}
+                />
+              )}
+              {state.selectedMission && (
+                <MissionPanel
+                  missions={state.missions}
+                  selectedMission={state.selectedMission}
+                  onSelectMission={actions.selectMission}
+                  onDispatch={actions.dispatchVehicle}
+                  buildingTypes={buildingTypes}
+                />
+              )}
+            </div>
+          </div>
         </aside>
 
         {/* Map */}
-        <main className="min-h-0 flex-1 p-2">
+        <main className="game-map-container">
           <CityMap
             city={state.city}
             buildings={state.buildings}

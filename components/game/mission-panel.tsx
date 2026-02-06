@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import type { Mission } from "@/lib/game-types"
 import { MISSION_CONFIGS } from "@/lib/game-types"
+import "./mission-panel.css"
 
 const MISSION_ICONS: Record<string, typeof Flame> = {
   Flame,
@@ -57,62 +58,62 @@ export function MissionPanel({
     )
 
     return (
-      <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">Mission Details</h2>
+      <div className="mission-panel">
+        <div className="mission-panel-header">
+          <h2 className="mission-panel-title">Mission Details</h2>
           <button
             onClick={() => onSelectMission(null)}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+            className="mission-panel-close-btn"
             aria-label="Close mission details"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-4 flex items-center gap-3">
+        <div className="mission-panel-content">
+          <div className="mission-panel-header-info">
             <div
-              className="flex h-10 w-10 items-center justify-center rounded-lg"
+              className="mission-panel-icon"
               style={{ backgroundColor: `${config.color}20` }}
             >
               {Icon && <Icon className="h-5 w-5" style={{ color: config.color }} />}
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="mission-panel-title-text">
                 {selectedMission.title}
               </h3>
-              <p className="text-xs" style={{ color: config.color }}>
+              <p className="mission-panel-type" style={{ color: config.color }}>
                 {selectedMission.type.replace("-", " ")}
               </p>
             </div>
           </div>
 
-          <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+          <p className="mission-panel-description">
             {selectedMission.description}
           </p>
 
           {/* Timer */}
-          <div className="mb-4">
-            <div className="mb-1 flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Time Remaining</span>
+          <div className="mission-timer">
+            <div className="mission-timer-header">
+              <div className="mission-timer-label">
+                <Clock className="h-3.5 w-3.5" />
+                <span>Time Remaining</span>
               </div>
               <span
-                className={`font-mono text-xs font-semibold ${
+                className={`mission-timer-time ${
                   urgencyRatio > 0.5
-                    ? "text-primary"
+                    ? "mission-timer-good"
                     : urgencyRatio > 0.25
-                      ? "text-accent"
-                      : "text-destructive"
+                      ? "mission-timer-medium"
+                      : "mission-timer-critical"
                 }`}
               >
                 {selectedMission.timeRemaining}s
               </span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+            <div className="mission-timer-bar">
               <div
-                className="h-full rounded-full transition-all"
+                className="mission-timer-progress"
                 style={{
                   width: `${urgencyRatio * 100}%`,
                   backgroundColor:
@@ -127,44 +128,36 @@ export function MissionPanel({
           </div>
 
           {/* Reward/Penalty */}
-          <div className="mb-4 space-y-2">
-            <div className="flex items-center justify-between rounded-md bg-primary/10 px-3 py-2">
-              <span className="text-xs text-primary">Reward</span>
-              <span className="text-xs font-semibold text-primary">
-                +${selectedMission.reward.toLocaleString()}
-              </span>
+          <div className="mission-rewards">
+            <div className="mission-reward">
+              <span>Reward</span>
+              <span>+${selectedMission.reward.toLocaleString()}</span>
             </div>
-            <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
-              <span className="text-xs text-destructive">Penalty</span>
-              <span className="text-xs font-semibold text-destructive">
-                -${selectedMission.penalty.toLocaleString()}
-              </span>
+            <div className="mission-penalty">
+              <span>Penalty</span>
+              <span>-${selectedMission.penalty.toLocaleString()}</span>
             </div>
           </div>
 
           {/* Required buildings */}
-          <div className="mb-4">
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Required
-            </h4>
-            <div className="space-y-1">
+          <div className="mission-required">
+            <h4 className="mission-required-title">Required</h4>
+            <div className="mission-required-list">
               {selectedMission.requiredBuildings.map((bt) => {
                 const hasIt = buildingTypes.includes(bt)
                 return (
                   <div
                     key={bt}
-                    className={`flex items-center gap-2 rounded-md px-3 py-1.5 ${
-                      hasIt ? "bg-primary/10" : "bg-destructive/10"
+                    className={`mission-required-item ${
+                      hasIt ? "mission-required-has" : "mission-required-missing"
                     }`}
                   >
                     {hasIt ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                      <CheckCircle2 className="h-3.5 w-3.5" />
                     ) : (
-                      <XCircle className="h-3.5 w-3.5 text-destructive" />
+                      <XCircle className="h-3.5 w-3.5" />
                     )}
-                    <span
-                      className={`text-xs ${hasIt ? "text-primary" : "text-destructive"}`}
-                    >
+                    <span className={hasIt ? "" : ""}>
                       {bt.replace(/-/g, " ")}
                     </span>
                   </div>
@@ -178,7 +171,7 @@ export function MissionPanel({
             <button
               onClick={() => onDispatch(selectedMission.id)}
               disabled={!hasRequiredBuildings}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="mission-dispatch-btn"
             >
               <Send className="h-4 w-4" />
               Dispatch Units
@@ -186,7 +179,7 @@ export function MissionPanel({
           )}
 
           {selectedMission.status === "dispatched" && (
-            <div className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2.5 text-center text-xs font-medium text-accent">
+            <div className="mission-dispatched">
               Units dispatched - en route
             </div>
           )}
@@ -196,26 +189,24 @@ export function MissionPanel({
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold text-foreground">Missions</h2>
-        <p className="text-xs text-muted-foreground">{activeMissions.length} active</p>
+    <div className="mission-panel">
+      <div className="mission-panel-header">
+        <h2 className="mission-panel-title">Missions</h2>
+        <p className="mission-panel-subtitle">{activeMissions.length} active</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="mission-panel-content">
         {activeMissions.length === 0 && recentResults.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <AlertTriangle className="mb-2 h-8 w-8 text-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground">No active missions</p>
-            <p className="text-xs text-muted-foreground">Press play to start</p>
+          <div className="mission-panel-empty">
+            <AlertTriangle className="mission-panel-empty-icon" />
+            <p>No active missions</p>
+            <p>Press play to start</p>
           </div>
         )}
 
         {activeMissions.length > 0 && (
-          <div className="mb-4 space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Active
-            </h3>
+          <div className="mission-list-section">
+            <h3 className="mission-list-title">Active</h3>
             {activeMissions.map((mission) => {
               const config = MISSION_CONFIGS[mission.type]
               const Icon = MISSION_ICONS[config.icon]
@@ -224,23 +215,23 @@ export function MissionPanel({
                 <button
                   key={mission.id}
                   onClick={() => onSelectMission(mission)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-left transition-all hover:border-primary/30 hover:bg-secondary/60"
+                  className="mission-item"
                 >
                   <div
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                    className="mission-item-icon"
                     style={{ backgroundColor: `${config.color}20` }}
                   >
                     {Icon && (
                       <Icon className="h-3.5 w-3.5" style={{ color: config.color }} />
                     )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium text-foreground">
+                  <div className="mission-item-content">
+                    <div className="mission-item-title">
                       {mission.title}
                     </div>
-                    <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-secondary">
+                    <div className="mission-item-progress">
                       <div
-                        className="h-full rounded-full transition-all"
+                        className="mission-item-progress-bar"
                         style={{
                           width: `${urgencyRatio * 100}%`,
                           backgroundColor:
@@ -253,7 +244,7 @@ export function MissionPanel({
                       />
                     </div>
                   </div>
-                  <span className="shrink-0 text-xs font-medium text-primary">
+                  <span className="mission-item-reward">
                     +${mission.reward.toLocaleString()}
                   </span>
                 </button>
@@ -263,32 +254,28 @@ export function MissionPanel({
         )}
 
         {recentResults.length > 0 && (
-          <div className="space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Recent
-            </h3>
+          <div className="mission-list-section">
+            <h3 className="mission-list-title">Recent</h3>
             {recentResults.map((mission) => {
               const isCompleted = mission.status === "completed"
               return (
                 <div
                   key={mission.id}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
-                    isCompleted
-                      ? "border-primary/20 bg-primary/5"
-                      : "border-destructive/20 bg-destructive/5"
+                  className={`mission-result-item ${
+                    isCompleted ? "mission-result-completed" : "mission-result-failed"
                   }`}
                 >
                   {isCompleted ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                    <CheckCircle2 className="h-4 w-4" />
                   ) : (
-                    <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+                    <XCircle className="h-4 w-4" />
                   )}
-                  <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                  <span className="mission-result-title">
                     {mission.title}
                   </span>
                   <span
-                    className={`shrink-0 text-xs font-medium ${
-                      isCompleted ? "text-primary" : "text-destructive"
+                    className={`mission-result-amount ${
+                      isCompleted ? "mission-result-positive" : "mission-result-negative"
                     }`}
                   >
                     {isCompleted

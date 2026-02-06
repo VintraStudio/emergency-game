@@ -576,6 +576,10 @@ export function useGameActions() {
       state = { ...state, city, population: city.population }
       emit()
     },
+    startGame: () => {
+      state = { ...state, isPaused: false }
+      emit()
+    },
     resetGame: () => {
       nextId = 1
       state = { ...INITIAL_STATE, buildings: [], missions: [], vehicles: [], city: null }
