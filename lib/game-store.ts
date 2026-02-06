@@ -8,11 +8,11 @@ import type {
   Vehicle,
   BuildingType,
   MissionType,
-  Position,
+  LatLng,
   VehicleStatus,
+  CityConfig,
 } from "./game-types"
 import { BUILDING_CONFIGS, MISSION_CONFIGS } from "./game-types"
-import { findNearestNode, findPath } from "./road-network"
 
 let nextId = 1
 function genId(prefix: string) {
@@ -34,6 +34,7 @@ const INITIAL_STATE: GameState = {
   managingBuilding: null,
   missionsCompleted: 0,
   missionsFailed: 0,
+  city: null,
 }
 
 let state: GameState = { ...INITIAL_STATE }
@@ -54,49 +55,72 @@ export function useGameState(): GameState {
   return useSyncExternalStore(subscribe, getState, getState)
 }
 
-// Movement speed in pixels per tick (1 tick = 1 second game time)
-const VEHICLE_SPEED = 40
+// --- OSRM routing ---
+// Uses the public OSRM demo server for route calculation
+async function fetchRoute(from: LatLng, to: LatLng): Promise<LatLng[]> {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
+    const res = await fetch(url)
+    const data = await res.json()
+    if (data.routes && data.routes.length > 0) {
+      const coords = data.routes[0].geometry.coordinates as [number, number][]
+      return coords.map(([lng, lat]) => ({ lat, lng }))
+    }
+  } catch (e) {
+    console.warn("[v0] OSRM route fetch failed, using direct path", e)
+  }
+  // Fallback: straight line with intermediate points
+  return interpolateRoute(from, to)
+}
 
-function moveVehicleAlongPath(v: Vehicle): Vehicle {
-  if (v.path.length === 0 || v.pathIndex >= v.path.length) {
+// Fallback interpolation if OSRM is unavailable
+function interpolateRoute(from: LatLng, to: LatLng): LatLng[] {
+  const steps = 20
+  const points: LatLng[] = []
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    points.push({
+      lat: from.lat + (to.lat - from.lat) * t,
+      lng: from.lng + (to.lng - from.lng) * t,
+    })
+  }
+  return points
+}
+
+// Vehicle movement: advance along routeCoords by a fixed number of points per tick
+const ROUTE_POINTS_PER_TICK = 3
+
+function moveVehicleAlongRoute(v: Vehicle): Vehicle {
+  if (v.routeCoords.length === 0 || v.routeIndex >= v.routeCoords.length - 1) {
     return v
   }
 
-  const target = v.path[v.pathIndex]
-  const dx = target.x - v.position.x
-  const dy = target.y - v.position.y
-  const d = Math.sqrt(dx * dx + dy * dy)
+  const newIndex = Math.min(v.routeIndex + ROUTE_POINTS_PER_TICK, v.routeCoords.length - 1)
+  const pos = v.routeCoords[newIndex]
 
-  if (d < VEHICLE_SPEED) {
-    // Reached this waypoint
-    const newIndex = v.pathIndex + 1
-    if (newIndex >= v.path.length) {
-      // Reached destination
-      return { ...v, position: { ...target }, pathIndex: newIndex }
-    }
-    return { ...v, position: { ...target }, pathIndex: newIndex }
-  }
-
-  // Move towards target
-  const ratio = VEHICLE_SPEED / d
   return {
     ...v,
-    position: {
-      x: v.position.x + dx * ratio,
-      y: v.position.y + dy * ratio,
-    },
+    position: { ...pos },
+    routeIndex: newIndex,
+  }
+}
+
+// Generate a random position within city bounds
+function randomPositionInCity(city: CityConfig): LatLng {
+  return {
+    lat: city.bounds.south + Math.random() * (city.bounds.north - city.bounds.south),
+    lng: city.bounds.west + Math.random() * (city.bounds.east - city.bounds.west),
   }
 }
 
 export function useGameActions() {
   const placeBuilding = useCallback(
-    (type: BuildingType, position: Position, size: "small" | "large" = "small") => {
+    (type: BuildingType, position: LatLng, size: "small" | "large" = "small") => {
       const config = BUILDING_CONFIGS[type]
       const cost = size === "small" ? config.smallCost : config.largeCost
       if (state.money < cost) return false
 
       const buildingId = genId("bldg")
-      const nearestRoadNode = findNearestNode(position)
 
       const vehicles: Vehicle[] = config.vehicles.flatMap((v) => {
         const count = size === "small" ? Math.ceil(v.count / 2) : v.count
@@ -106,9 +130,8 @@ export function useGameActions() {
           buildingId,
           status: "idle" as VehicleStatus,
           position: { ...position },
-          path: [],
-          pathIndex: 0,
-          speed: VEHICLE_SPEED,
+          routeCoords: [],
+          routeIndex: 0,
           workTimeRemaining: 0,
         }))
       })
@@ -120,7 +143,6 @@ export function useGameActions() {
         level: 1,
         name: `${config.name} ${state.buildings.filter((b) => b.type === type).length + 1}`,
         position,
-        nearestRoadNode,
         vehicles,
         staff: size === "small" ? 5 : 12,
         maxStaff: size === "small" ? 8 : 20,
@@ -153,20 +175,18 @@ export function useGameActions() {
     const upgradeCost = config.upgradeCost * building.level
     const newSize = building.level >= 2 ? "large" : building.size === "small" ? "large" : building.size
 
-    // Add extra vehicles on upgrade
-    const newVehicles: Vehicle[] = config.vehicles.flatMap((v) => {
-      return Array.from({ length: 1 }, () => ({
+    const newVehicles: Vehicle[] = config.vehicles.flatMap((v) =>
+      Array.from({ length: 1 }, () => ({
         id: genId("veh"),
         type: v.type,
         buildingId,
         status: "idle" as VehicleStatus,
         position: { ...building.position },
-        path: [],
-        pathIndex: 0,
-        speed: VEHICLE_SPEED,
+        routeCoords: [],
+        routeIndex: 0,
         workTimeRemaining: 0,
-      }))
-    })
+      })),
+    )
 
     state = {
       ...state,
@@ -185,17 +205,18 @@ export function useGameActions() {
           : b,
       ),
       vehicles: [...state.vehicles, ...newVehicles],
-      managingBuilding: state.managingBuilding?.id === buildingId
-        ? {
-            ...state.managingBuilding,
-            level: state.managingBuilding.level + 1,
-            size: newSize as "small" | "large",
-            maxStaff: state.managingBuilding.maxStaff + 5,
-            staff: Math.min(state.managingBuilding.staff + 2, state.managingBuilding.maxStaff + 5),
-            vehicles: [...state.managingBuilding.vehicles, ...newVehicles],
-            efficiency: Math.min(1, state.managingBuilding.efficiency + 0.15),
-          }
-        : state.managingBuilding,
+      managingBuilding:
+        state.managingBuilding?.id === buildingId
+          ? {
+              ...state.managingBuilding,
+              level: state.managingBuilding.level + 1,
+              size: newSize as "small" | "large",
+              maxStaff: state.managingBuilding.maxStaff + 5,
+              staff: Math.min(state.managingBuilding.staff + 2, state.managingBuilding.maxStaff + 5),
+              vehicles: [...state.managingBuilding.vehicles, ...newVehicles],
+              efficiency: Math.min(1, state.managingBuilding.efficiency + 0.15),
+            }
+          : state.managingBuilding,
     }
     emit()
     return true
@@ -213,11 +234,18 @@ export function useGameActions() {
       ...state,
       money: state.money - config.staffCost,
       buildings: state.buildings.map((b) =>
-        b.id === buildingId ? { ...b, staff: b.staff + 1, efficiency: Math.min(1, b.efficiency + 0.05) } : b,
+        b.id === buildingId
+          ? { ...b, staff: b.staff + 1, efficiency: Math.min(1, b.efficiency + 0.05) }
+          : b,
       ),
-      managingBuilding: state.managingBuilding?.id === buildingId
-        ? { ...state.managingBuilding, staff: state.managingBuilding.staff + 1, efficiency: Math.min(1, state.managingBuilding.efficiency + 0.05) }
-        : state.managingBuilding,
+      managingBuilding:
+        state.managingBuilding?.id === buildingId
+          ? {
+              ...state.managingBuilding,
+              staff: state.managingBuilding.staff + 1,
+              efficiency: Math.min(1, state.managingBuilding.efficiency + 0.05),
+            }
+          : state.managingBuilding,
     }
     emit()
     return true
@@ -237,9 +265,8 @@ export function useGameActions() {
       buildingId,
       status: "idle",
       position: { ...building.position },
-      path: [],
-      pathIndex: 0,
-      speed: VEHICLE_SPEED,
+      routeCoords: [],
+      routeIndex: 0,
       workTimeRemaining: 0,
     }
 
@@ -250,9 +277,10 @@ export function useGameActions() {
         b.id === buildingId ? { ...b, vehicles: [...b.vehicles, newVehicle] } : b,
       ),
       vehicles: [...state.vehicles, newVehicle],
-      managingBuilding: state.managingBuilding?.id === buildingId
-        ? { ...state.managingBuilding, vehicles: [...state.managingBuilding.vehicles, newVehicle] }
-        : state.managingBuilding,
+      managingBuilding:
+        state.managingBuilding?.id === buildingId
+          ? { ...state.managingBuilding, vehicles: [...state.managingBuilding.vehicles, newVehicle] }
+          : state.managingBuilding,
     }
     emit()
     return true
@@ -298,28 +326,9 @@ export function useGameActions() {
 
     if (availableVehicles.length === 0) return
 
-    // Compute paths for each vehicle
-    const updatedVehicles = state.vehicles.map((v) => {
-      const match = availableVehicles.find((av) => av.id === v.id)
-      if (!match) return v
-
-      const building = state.buildings.find((b) => b.id === v.buildingId)
-      const fromNode = building?.nearestRoadNode || findNearestNode(v.position)
-      const toNode = mission.nearestRoadNode
-      const path = findPath(fromNode, toNode)
-
-      return {
-        ...v,
-        status: "dispatched" as VehicleStatus,
-        targetPosition: mission.position,
-        missionId: mission.id,
-        path,
-        pathIndex: 0,
-      }
-    })
-
     const vehicleIds = availableVehicles.map((v) => v.id)
 
+    // Mark as dispatched immediately, routes will be fetched async
     state = {
       ...state,
       missions: state.missions.map((m) =>
@@ -327,23 +336,38 @@ export function useGameActions() {
           ? { ...m, status: "dispatched" as const, dispatchedVehicles: vehicleIds }
           : m,
       ),
-      vehicles: updatedVehicles,
+      vehicles: state.vehicles.map((v) => {
+        if (vehicleIds.includes(v.id)) {
+          return { ...v, status: "dispatched" as VehicleStatus, missionId: mission.id }
+        }
+        return v
+      }),
     }
     emit()
+
+    // Fetch routes asynchronously for each vehicle
+    for (const veh of availableVehicles) {
+      fetchRoute(veh.position, mission.position).then((routeCoords) => {
+        state = {
+          ...state,
+          vehicles: state.vehicles.map((v) =>
+            v.id === veh.id ? { ...v, routeCoords, routeIndex: 0 } : v,
+          ),
+        }
+        emit()
+      })
+    }
   }, [])
 
   const generateMission = useCallback(() => {
+    if (!state.city) return
+
     const types: MissionType[] = ["fire", "traffic-accident", "medical-emergency", "crime", "infrastructure"]
     const type = types[Math.floor(Math.random() * types.length)]
     const config = MISSION_CONFIGS[type]
     const titleIndex = Math.floor(Math.random() * config.titles.length)
 
-    // Place missions within the city bounds (1600 x 1000)
-    const position: Position = {
-      x: 100 + Math.random() * 1400,
-      y: 80 + Math.random() * 840,
-    }
-    const nearestRoadNode = findNearestNode(position)
+    const position = randomPositionInCity(state.city)
 
     const mission: Mission = {
       id: genId("msn"),
@@ -351,7 +375,6 @@ export function useGameActions() {
       title: config.titles[titleIndex],
       description: config.descriptions[titleIndex],
       position,
-      nearestRoadNode,
       status: "pending",
       reward: config.baseReward + Math.floor(Math.random() * 500),
       penalty: config.basePenalty + Math.floor(Math.random() * 200),
@@ -377,9 +400,10 @@ export function useGameActions() {
     // --- Move vehicles ---
     let updatedVehicles = state.vehicles.map((v) => {
       if (v.status === "dispatched") {
-        const moved = moveVehicleAlongPath(v)
+        if (v.routeCoords.length === 0) return v // still waiting for route
+        const moved = moveVehicleAlongRoute(v)
         // Check if arrived at destination
-        if (moved.pathIndex >= moved.path.length && moved.path.length > 0) {
+        if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const mission = state.missions.find((m) => m.id === v.missionId)
           return {
             ...moved,
@@ -393,37 +417,43 @@ export function useGameActions() {
       if (v.status === "working") {
         const remaining = v.workTimeRemaining - 1
         if (remaining <= 0) {
-          // Done working - start returning
+          // Done working - fetch return route async
           const building = state.buildings.find((b) => b.id === v.buildingId)
           if (building) {
-            const fromNode = findNearestNode(v.position)
-            const toNode = building.nearestRoadNode
-            const returnPath = findPath(fromNode, toNode)
+            fetchRoute(v.position, building.position).then((routeCoords) => {
+              state = {
+                ...state,
+                vehicles: state.vehicles.map((sv) =>
+                  sv.id === v.id ? { ...sv, routeCoords, routeIndex: 0 } : sv,
+                ),
+              }
+              emit()
+            })
             return {
               ...v,
               status: "returning" as VehicleStatus,
-              path: returnPath,
-              pathIndex: 0,
               workTimeRemaining: 0,
+              routeCoords: [], // will be filled by async call
+              routeIndex: 0,
             }
           }
-          return { ...v, status: "idle" as VehicleStatus, workTimeRemaining: 0, path: [], pathIndex: 0 }
+          return { ...v, status: "idle" as VehicleStatus, workTimeRemaining: 0, routeCoords: [], routeIndex: 0 }
         }
         return { ...v, workTimeRemaining: remaining }
       }
 
       if (v.status === "returning") {
-        const moved = moveVehicleAlongPath(v)
-        if (moved.pathIndex >= moved.path.length && moved.path.length > 0) {
+        if (v.routeCoords.length === 0) return v // still waiting for return route
+        const moved = moveVehicleAlongRoute(v)
+        if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const building = state.buildings.find((b) => b.id === v.buildingId)
           return {
             ...moved,
             status: "idle" as VehicleStatus,
             position: building ? { ...building.position } : moved.position,
-            path: [],
-            pathIndex: 0,
+            routeCoords: [],
+            routeIndex: 0,
             missionId: undefined,
-            targetPosition: undefined,
           }
         }
         return moved
@@ -442,9 +472,9 @@ export function useGameActions() {
         // Check if all dispatched vehicles finished working
         if (m.status === "dispatched") {
           const dispVehicles = updatedVehicles.filter((v) => v.missionId === m.id)
-          const allDone = dispVehicles.length > 0 && dispVehicles.every(
-            (v) => v.status === "returning" || v.status === "idle",
-          )
+          const allDone =
+            dispVehicles.length > 0 &&
+            dispVehicles.every((v) => v.status === "returning" || v.status === "idle")
           if (allDone) {
             newMoney += m.reward
             completed++
@@ -455,19 +485,25 @@ export function useGameActions() {
         if (newTime <= 0) {
           newMoney -= m.penalty
           failed++
-          // Return dispatched vehicles for failed missions
           const failedVehIds = new Set(m.dispatchedVehicles)
           updatedVehicles = updatedVehicles.map((v) => {
             if (failedVehIds.has(v.id) && v.status !== "idle") {
               const building = state.buildings.find((b) => b.id === v.buildingId)
               if (building && (v.status === "dispatched" || v.status === "working")) {
-                const fromNode = findNearestNode(v.position)
-                const returnPath = findPath(fromNode, building.nearestRoadNode)
+                fetchRoute(v.position, building.position).then((routeCoords) => {
+                  state = {
+                    ...state,
+                    vehicles: state.vehicles.map((sv) =>
+                      sv.id === v.id ? { ...sv, routeCoords, routeIndex: 0 } : sv,
+                    ),
+                  }
+                  emit()
+                })
                 return {
                   ...v,
                   status: "returning" as VehicleStatus,
-                  path: returnPath,
-                  pathIndex: 0,
+                  routeCoords: [],
+                  routeIndex: 0,
                   workTimeRemaining: 0,
                 }
               }
@@ -524,7 +560,6 @@ export function useGameActions() {
       emit()
     },
     openBuildingManager: (building: Building | null) => {
-      // Refresh the building data from state
       if (building) {
         const fresh = state.buildings.find((b) => b.id === building.id) || building
         state = { ...state, managingBuilding: fresh }
@@ -537,9 +572,13 @@ export function useGameActions() {
       state = { ...state, isPaused: !state.isPaused }
       emit()
     },
+    setCity: (city: CityConfig) => {
+      state = { ...state, city, population: city.population }
+      emit()
+    },
     resetGame: () => {
       nextId = 1
-      state = { ...INITIAL_STATE, buildings: [], missions: [], vehicles: [] }
+      state = { ...INITIAL_STATE, buildings: [], missions: [], vehicles: [], city: null }
       emit()
     },
   }

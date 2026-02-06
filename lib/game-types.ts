@@ -20,22 +20,10 @@ export type MissionStatus = "pending" | "dispatched" | "in-progress" | "complete
 
 export type VehicleStatus = "idle" | "dispatched" | "returning" | "working"
 
-export interface Position {
-  x: number
-  y: number
-}
-
-export interface RoadNode {
-  id: string
-  x: number
-  y: number
-  connections: string[]
-}
-
-export interface RoadSegment {
-  from: string
-  to: string
-  path?: Position[]  // for curved roads
+// Geographic position using lat/lng for Leaflet
+export interface LatLng {
+  lat: number
+  lng: number
 }
 
 export interface Building {
@@ -44,8 +32,7 @@ export interface Building {
   size: BuildingSize
   level: number
   name: string
-  position: Position
-  nearestRoadNode: string
+  position: LatLng
   vehicles: Vehicle[]
   staff: number
   maxStaff: number
@@ -59,11 +46,9 @@ export interface Vehicle {
   type: string
   buildingId: string
   status: VehicleStatus
-  position: Position
-  path: Position[]
-  pathIndex: number
-  targetPosition?: Position
-  speed: number
+  position: LatLng
+  routeCoords: LatLng[] // full OSRM route coordinates
+  routeIndex: number    // current index along routeCoords
   missionId?: string
   workTimeRemaining: number
 }
@@ -73,8 +58,7 @@ export interface Mission {
   type: MissionType
   title: string
   description: string
-  position: Position
-  nearestRoadNode: string
+  position: LatLng
   status: MissionStatus
   reward: number
   penalty: number
@@ -84,6 +68,16 @@ export interface Mission {
   dispatchedVehicles: string[]
   workDuration: number
   createdAt: number
+}
+
+export interface CityConfig {
+  id: string
+  name: string
+  country: string
+  center: LatLng
+  zoom: number
+  population: number
+  bounds: { north: number; south: number; east: number; west: number }
 }
 
 export interface GameState {
@@ -101,35 +95,65 @@ export interface GameState {
   managingBuilding: Building | null
   missionsCompleted: number
   missionsFailed: number
+  city: CityConfig | null
 }
 
-export interface CityZone {
-  id: string
-  type: "residential" | "commercial" | "industrial" | "public"
-  name: string
-  position: Position
-  width: number
-  height: number
-}
-
-export interface CityStructure {
-  id: string
-  type: "office" | "school" | "house" | "apartment" | "shop" | "park-building" | "factory"
-  position: Position
-  width: number
-  height: number
-  color: string
-  roofColor: string
-}
-
-export interface ParkArea {
-  id: string
-  position: Position
-  width: number
-  height: number
-  trees: Position[]
-  bushes: Position[]
-}
+export const CITY_OPTIONS: CityConfig[] = [
+  {
+    id: "oslo",
+    name: "Oslo",
+    country: "Norway",
+    center: { lat: 59.9139, lng: 10.7522 },
+    zoom: 14,
+    population: 709000,
+    bounds: { north: 59.935, south: 59.895, east: 10.795, west: 10.710 },
+  },
+  {
+    id: "copenhagen",
+    name: "Copenhagen",
+    country: "Denmark",
+    center: { lat: 55.6761, lng: 12.5683 },
+    zoom: 14,
+    population: 812000,
+    bounds: { north: 55.695, south: 55.657, east: 12.610, west: 12.527 },
+  },
+  {
+    id: "stockholm",
+    name: "Stockholm",
+    country: "Sweden",
+    center: { lat: 59.3293, lng: 18.0686 },
+    zoom: 14,
+    population: 990000,
+    bounds: { north: 59.348, south: 59.310, east: 18.110, west: 18.028 },
+  },
+  {
+    id: "helsinki",
+    name: "Helsinki",
+    country: "Finland",
+    center: { lat: 60.1699, lng: 24.9384 },
+    zoom: 14,
+    population: 670000,
+    bounds: { north: 60.188, south: 60.152, east: 24.980, west: 24.897 },
+  },
+  {
+    id: "london",
+    name: "London",
+    country: "United Kingdom",
+    center: { lat: 51.5074, lng: -0.1278 },
+    zoom: 14,
+    population: 9000000,
+    bounds: { north: 51.525, south: 51.490, east: -0.085, west: -0.170 },
+  },
+  {
+    id: "berlin",
+    name: "Berlin",
+    country: "Germany",
+    center: { lat: 52.5200, lng: 13.4050 },
+    zoom: 14,
+    population: 3700000,
+    bounds: { north: 52.538, south: 52.502, east: 13.448, west: 13.362 },
+  },
+]
 
 export const BUILDING_CONFIGS: Record<
   BuildingType,
@@ -154,7 +178,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 4000,
     staffCost: 500,
     vehicleCost: 2000,
-    color: "hsl(16, 85%, 55%)",
+    color: "#e86430",
     vehicles: [{ type: "Fire Truck", count: 2 }],
     maxLevel: 3,
   },
@@ -166,7 +190,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 3500,
     staffCost: 400,
     vehicleCost: 1500,
-    color: "hsl(220, 75%, 55%)",
+    color: "#4488ee",
     vehicles: [{ type: "Patrol Car", count: 3 }],
     maxLevel: 3,
   },
@@ -178,7 +202,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 6000,
     staffCost: 600,
     vehicleCost: 2500,
-    color: "hsl(0, 72%, 55%)",
+    color: "#e04444",
     vehicles: [{ type: "Ambulance", count: 2 }],
     maxLevel: 3,
   },
@@ -190,7 +214,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 2500,
     staffCost: 350,
     vehicleCost: 1800,
-    color: "hsl(0, 72%, 55%)",
+    color: "#e04444",
     vehicles: [{ type: "Ambulance", count: 3 }],
     maxLevel: 3,
   },
@@ -202,7 +226,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 2000,
     staffCost: 300,
     vehicleCost: 1200,
-    color: "hsl(340, 65%, 55%)",
+    color: "#cc4488",
     vehicles: [{ type: "Medical Van", count: 1 }],
     maxLevel: 3,
   },
@@ -214,7 +238,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 2500,
     staffCost: 350,
     vehicleCost: 1500,
-    color: "hsl(38, 90%, 55%)",
+    color: "#ddaa22",
     vehicles: [{ type: "Utility Truck", count: 2 }],
     maxLevel: 3,
   },
@@ -226,7 +250,7 @@ export const BUILDING_CONFIGS: Record<
     upgradeCost: 2000,
     staffCost: 250,
     vehicleCost: 1000,
-    color: "hsl(220, 10%, 50%)",
+    color: "#778899",
     vehicles: [{ type: "Transport Van", count: 1 }],
     maxLevel: 3,
   },
@@ -260,12 +284,12 @@ export const MISSION_CONFIGS: Record<
     workDuration: 10,
     requiredBuildings: ["fire-station"],
     icon: "Flame",
-    color: "hsl(16, 85%, 55%)",
+    color: "#e86430",
   },
   "traffic-accident": {
     titles: ["Traffic Collision", "Highway Pileup", "Pedestrian Accident", "Bus Accident"],
     descriptions: [
-      "Multi-vehicle collision on Main Street!",
+      "Multi-vehicle collision on a main road!",
       "Major pileup on the highway!",
       "Pedestrian struck near the school zone!",
       "Bus accident downtown, multiple injuries!",
@@ -276,7 +300,7 @@ export const MISSION_CONFIGS: Record<
     workDuration: 8,
     requiredBuildings: ["ambulance-station", "police-station"],
     icon: "CarFront",
-    color: "hsl(38, 90%, 55%)",
+    color: "#ddaa22",
   },
   "medical-emergency": {
     titles: ["Heart Attack", "Stroke Alert", "Allergic Reaction", "Injury Report"],
@@ -292,7 +316,7 @@ export const MISSION_CONFIGS: Record<
     workDuration: 6,
     requiredBuildings: ["hospital", "ambulance-station"],
     icon: "HeartPulse",
-    color: "hsl(0, 72%, 55%)",
+    color: "#e04444",
   },
   crime: {
     titles: ["Robbery in Progress", "Assault Reported", "Break-in Alert", "Suspicious Activity"],
@@ -308,12 +332,12 @@ export const MISSION_CONFIGS: Record<
     workDuration: 8,
     requiredBuildings: ["police-station"],
     icon: "ShieldAlert",
-    color: "hsl(220, 75%, 55%)",
+    color: "#4488ee",
   },
   infrastructure: {
     titles: ["Road Collapse", "Water Main Break", "Power Line Down", "Sinkhole"],
     descriptions: [
-      "Road has collapsed on 5th Avenue!",
+      "Road has collapsed on a major street!",
       "Water main burst flooding the street!",
       "Power line down, area unsafe!",
       "Sinkhole forming near residential area!",
@@ -324,6 +348,6 @@ export const MISSION_CONFIGS: Record<
     workDuration: 15,
     requiredBuildings: ["road-authority"],
     icon: "AlertTriangle",
-    color: "hsl(38, 90%, 55%)",
+    color: "#ddaa22",
   },
 }

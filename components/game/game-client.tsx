@@ -11,6 +11,7 @@ import { GameOver } from "./game-over"
 import { StartScreen } from "./start-screen"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Building2, Zap } from "lucide-react"
+import type { CityConfig } from "@/lib/game-types"
 
 export function GameClient() {
   const state = useGameState()
@@ -19,13 +20,13 @@ export function GameClient() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const missionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Game loop -- fast tick for smooth vehicle movement
+  // Game loop -- tick every 500ms for vehicle movement
   useEffect(() => {
     if (!started) return
 
     tickRef.current = setInterval(() => {
       actions.tick()
-    }, 250) // 4 ticks per second for smoother movement
+    }, 500)
 
     return () => {
       if (tickRef.current) clearInterval(tickRef.current)
@@ -60,10 +61,14 @@ export function GameClient() {
     }
   }, [started, state.isPaused, state.gameOver, state.missions, actions])
 
-  const handleStart = useCallback(() => {
-    actions.resetGame()
-    setStarted(true)
-  }, [actions])
+  const handleStart = useCallback(
+    (city: CityConfig) => {
+      actions.resetGame()
+      actions.setCity(city)
+      setStarted(true)
+    },
+    [actions],
+  )
 
   const handleReset = useCallback(() => {
     actions.resetGame()
@@ -72,7 +77,7 @@ export function GameClient() {
 
   const buildingTypes = state.buildings.map((b) => b.type)
 
-  if (!started) {
+  if (!started || !state.city) {
     return <StartScreen onStart={handleStart} />
   }
 
@@ -125,6 +130,7 @@ export function GameClient() {
         {/* Map */}
         <main className="min-h-0 flex-1 p-2">
           <CityMap
+            city={state.city}
             buildings={state.buildings}
             missions={state.missions}
             vehicles={state.vehicles}
