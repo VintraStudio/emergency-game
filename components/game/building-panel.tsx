@@ -1,30 +1,14 @@
 "use client"
 
 import {
-  Flame,
-  Shield,
-  Heart,
-  Siren,
-  Stethoscope,
-  Construction,
-  Building2,
-  ArrowUpCircle,
-  Trash2,
-  Truck,
-  Users,
-  X,
+  Flame, Shield, Heart, Siren, Stethoscope, Construction, Building2,
+  ArrowUpCircle, Trash2, Truck, Users, X, Settings2,
 } from "lucide-react"
 import type { Building, BuildingType } from "@/lib/game-types"
 import { BUILDING_CONFIGS } from "@/lib/game-types"
 
 const ICON_MAP: Record<string, typeof Flame> = {
-  Flame,
-  Shield,
-  Heart,
-  Siren,
-  Stethoscope,
-  Construction,
-  Building2,
+  Flame, Shield, Heart, Siren, Stethoscope, Construction, Building2,
 }
 
 interface BuildingPanelProps {
@@ -35,16 +19,12 @@ interface BuildingPanelProps {
   onUpgrade: (buildingId: string) => void
   onSell: (buildingId: string) => void
   onDeselect: () => void
+  onManage: (building: Building) => void
 }
 
 export function BuildingPanel({
-  money,
-  placingBuilding,
-  onSetPlacing,
-  selectedBuilding,
-  onUpgrade,
-  onSell,
-  onDeselect,
+  money, placingBuilding, onSetPlacing,
+  selectedBuilding, onUpgrade, onSell, onDeselect, onManage,
 }: BuildingPanelProps) {
   const buildingTypes = Object.entries(BUILDING_CONFIGS) as [
     BuildingType,
@@ -54,7 +34,7 @@ export function BuildingPanel({
   if (selectedBuilding) {
     const config = BUILDING_CONFIGS[selectedBuilding.type]
     const Icon = ICON_MAP[config.icon]
-    const canUpgrade = selectedBuilding.size === "small" && money >= config.upgradeCost
+    const canUpgrade = selectedBuilding.level < config.maxLevel && money >= config.upgradeCost * selectedBuilding.level
 
     return (
       <div className="flex h-full flex-col">
@@ -80,7 +60,7 @@ export function BuildingPanel({
             <div>
               <h3 className="text-sm font-semibold text-foreground">{selectedBuilding.name}</h3>
               <p className="text-xs text-muted-foreground">
-                {selectedBuilding.size === "large" ? "Large" : "Small"} facility
+                Level {selectedBuilding.level} -- {selectedBuilding.size === "large" ? "Large" : "Small"}
               </p>
             </div>
           </div>
@@ -108,23 +88,19 @@ export function BuildingPanel({
 
           {/* Vehicle list */}
           <div className="mb-4">
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Vehicles
             </h4>
             <div className="space-y-1">
               {selectedBuilding.vehicles.map((v) => (
-                <div
-                  key={v.id}
-                  className="flex items-center justify-between rounded-md bg-secondary/30 px-3 py-1.5"
-                >
+                <div key={v.id} className="flex items-center justify-between rounded-md bg-secondary/30 px-3 py-1.5">
                   <span className="text-xs text-foreground">{v.type}</span>
                   <span
                     className={`text-xs font-medium ${
-                      v.status === "idle"
-                        ? "text-primary"
-                        : v.status === "dispatched"
-                          ? "text-accent"
-                          : "text-muted-foreground"
+                      v.status === "idle" ? "text-primary"
+                      : v.status === "dispatched" ? "text-accent"
+                      : v.status === "working" ? "text-chart-4"
+                      : "text-muted-foreground"
                     }`}
                   >
                     {v.status}
@@ -136,14 +112,21 @@ export function BuildingPanel({
 
           {/* Actions */}
           <div className="space-y-2">
-            {selectedBuilding.size === "small" && (
+            <button
+              onClick={() => onManage(selectedBuilding)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+            >
+              <Settings2 className="h-4 w-4" />
+              Manage Building
+            </button>
+            {selectedBuilding.level < config.maxLevel && (
               <button
                 onClick={() => onUpgrade(selectedBuilding.id)}
                 disabled={!canUpgrade}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ArrowUpCircle className="h-4 w-4" />
-                Upgrade (${config.upgradeCost.toLocaleString()})
+                Upgrade (${(config.upgradeCost * selectedBuilding.level).toLocaleString()})
               </button>
             )}
             <button
@@ -193,13 +176,9 @@ export function BuildingPanel({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium text-foreground">{config.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    ${config.smallCost.toLocaleString()}
-                  </div>
+                  <div className="text-xs text-muted-foreground">${config.smallCost.toLocaleString()}</div>
                 </div>
-                {isActive && (
-                  <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                )}
+                {isActive && <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
               </button>
             )
           })}

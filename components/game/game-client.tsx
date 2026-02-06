@@ -6,6 +6,7 @@ import { CityMap } from "./city-map"
 import { GameHud } from "./game-hud"
 import { BuildingPanel } from "./building-panel"
 import { MissionPanel } from "./mission-panel"
+import { BuildingManager } from "./building-manager"
 import { GameOver } from "./game-over"
 import { StartScreen } from "./start-screen"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -18,20 +19,20 @@ export function GameClient() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const missionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Game loop - tick every second
+  // Game loop -- fast tick for smooth vehicle movement
   useEffect(() => {
     if (!started) return
 
     tickRef.current = setInterval(() => {
       actions.tick()
-    }, 1000)
+    }, 250) // 4 ticks per second for smoother movement
 
     return () => {
       if (tickRef.current) clearInterval(tickRef.current)
     }
   }, [started, actions])
 
-  // Mission generation - every 8-15 seconds when not paused
+  // Mission generation -- every 8-15 seconds when not paused
   useEffect(() => {
     if (!started || state.isPaused || state.gameOver) {
       if (missionTimerRef.current) clearInterval(missionTimerRef.current)
@@ -47,7 +48,6 @@ export function GameClient() {
       }
     }
 
-    // Generate first mission immediately if none exist
     if (state.missions.length === 0) {
       spawnMission()
     }
@@ -107,6 +107,7 @@ export function GameClient() {
                 onUpgrade={actions.upgradeBuilding}
                 onSell={actions.sellBuilding}
                 onDeselect={() => actions.selectBuilding(null)}
+                onManage={actions.openBuildingManager}
               />
             </TabsContent>
             <TabsContent value="missions" className="m-0 min-h-0 flex-1">
@@ -126,15 +127,28 @@ export function GameClient() {
           <CityMap
             buildings={state.buildings}
             missions={state.missions}
+            vehicles={state.vehicles}
             placingBuilding={state.placingBuilding}
-            onPlaceBuilding={(type, pos) => {
-              actions.placeBuilding(type, pos)
-            }}
+            onPlaceBuilding={(type, pos) => actions.placeBuilding(type, pos)}
             onSelectBuilding={actions.selectBuilding}
             onSelectMission={actions.selectMission}
+            onOpenBuilding={actions.openBuildingManager}
           />
         </main>
       </div>
+
+      {/* Building Management Modal */}
+      {state.managingBuilding && (
+        <BuildingManager
+          building={state.managingBuilding}
+          money={state.money}
+          onUpgrade={actions.upgradeBuilding}
+          onHireStaff={actions.hireStaff}
+          onPurchaseVehicle={actions.purchaseVehicle}
+          onSell={actions.sellBuilding}
+          onClose={() => actions.openBuildingManager(null)}
+        />
+      )}
 
       {/* Game Over Overlay */}
       {state.gameOver && <GameOver state={state} onReset={handleReset} />}

@@ -79,3 +79,12 @@
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
 }
+
+@keyframes vehicle-pulse {
+  0%, 100% { r: 4; }
+  50% { r: 6; }
+}
+
+svg {
+  touch-action: none;
+}

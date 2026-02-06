@@ -11,6 +11,7 @@ import {
   XCircle,
   Building2,
   Zap,
+  Truck,
 } from "lucide-react"
 import type { GameState } from "@/lib/game-types"
 
@@ -91,6 +92,14 @@ export function GameHud({ state, onTogglePause }: GameHudProps) {
       <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card/80 px-3 py-1.5 backdrop-blur-sm">
         <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-sm text-foreground">{state.buildings.length}</span>
+      </div>
+
+      {/* Active Vehicles */}
+      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card/80 px-3 py-1.5 backdrop-blur-sm">
+        <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-sm text-foreground">
+          {state.vehicles.filter((v) => v.status !== "idle").length}/{state.vehicles.length}
+        </span>
       </div>
 
       {/* Active Missions */}

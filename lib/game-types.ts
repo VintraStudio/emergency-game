@@ -18,32 +18,54 @@ export type MissionType =
 
 export type MissionStatus = "pending" | "dispatched" | "in-progress" | "completed" | "failed"
 
+export type VehicleStatus = "idle" | "dispatched" | "returning" | "working"
+
 export interface Position {
   x: number
   y: number
+}
+
+export interface RoadNode {
+  id: string
+  x: number
+  y: number
+  connections: string[]
+}
+
+export interface RoadSegment {
+  from: string
+  to: string
+  path?: Position[]  // for curved roads
 }
 
 export interface Building {
   id: string
   type: BuildingType
   size: BuildingSize
+  level: number
   name: string
   position: Position
+  nearestRoadNode: string
   vehicles: Vehicle[]
   staff: number
   maxStaff: number
   upgrades: string[]
   cost: number
+  efficiency: number
 }
 
 export interface Vehicle {
   id: string
   type: string
   buildingId: string
-  status: "idle" | "dispatched" | "returning"
+  status: VehicleStatus
   position: Position
+  path: Position[]
+  pathIndex: number
   targetPosition?: Position
   speed: number
+  missionId?: string
+  workTimeRemaining: number
 }
 
 export interface Mission {
@@ -52,6 +74,7 @@ export interface Mission {
   title: string
   description: string
   position: Position
+  nearestRoadNode: string
   status: MissionStatus
   reward: number
   penalty: number
@@ -59,6 +82,7 @@ export interface Mission {
   timeRemaining: number
   requiredBuildings: BuildingType[]
   dispatchedVehicles: string[]
+  workDuration: number
   createdAt: number
 }
 
@@ -74,6 +98,7 @@ export interface GameState {
   selectedBuilding: Building | null
   selectedMission: Mission | null
   placingBuilding: BuildingType | null
+  managingBuilding: Building | null
   missionsCompleted: number
   missionsFailed: number
 }
@@ -87,6 +112,25 @@ export interface CityZone {
   height: number
 }
 
+export interface CityStructure {
+  id: string
+  type: "office" | "school" | "house" | "apartment" | "shop" | "park-building" | "factory"
+  position: Position
+  width: number
+  height: number
+  color: string
+  roofColor: string
+}
+
+export interface ParkArea {
+  id: string
+  position: Position
+  width: number
+  height: number
+  trees: Position[]
+  bushes: Position[]
+}
+
 export const BUILDING_CONFIGS: Record<
   BuildingType,
   {
@@ -95,8 +139,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: number
     largeCost: number
     upgradeCost: number
+    staffCost: number
+    vehicleCost: number
     color: string
     vehicles: { type: string; count: number }[]
+    maxLevel: number
   }
 > = {
   "fire-station": {
@@ -105,8 +152,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 3000,
     largeCost: 6000,
     upgradeCost: 4000,
+    staffCost: 500,
+    vehicleCost: 2000,
     color: "hsl(16, 85%, 55%)",
     vehicles: [{ type: "Fire Truck", count: 2 }],
+    maxLevel: 3,
   },
   "police-station": {
     name: "Police Station",
@@ -114,8 +164,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 2500,
     largeCost: 5000,
     upgradeCost: 3500,
+    staffCost: 400,
+    vehicleCost: 1500,
     color: "hsl(220, 75%, 55%)",
     vehicles: [{ type: "Patrol Car", count: 3 }],
+    maxLevel: 3,
   },
   hospital: {
     name: "Hospital",
@@ -123,8 +176,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 5000,
     largeCost: 10000,
     upgradeCost: 6000,
+    staffCost: 600,
+    vehicleCost: 2500,
     color: "hsl(0, 72%, 55%)",
     vehicles: [{ type: "Ambulance", count: 2 }],
+    maxLevel: 3,
   },
   "ambulance-station": {
     name: "Ambulance Station",
@@ -132,8 +188,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 2000,
     largeCost: 4000,
     upgradeCost: 2500,
+    staffCost: 350,
+    vehicleCost: 1800,
     color: "hsl(0, 72%, 55%)",
     vehicles: [{ type: "Ambulance", count: 3 }],
+    maxLevel: 3,
   },
   "medical-clinic": {
     name: "Medical Clinic",
@@ -141,8 +200,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 1500,
     largeCost: 3000,
     upgradeCost: 2000,
+    staffCost: 300,
+    vehicleCost: 1200,
     color: "hsl(340, 65%, 55%)",
     vehicles: [{ type: "Medical Van", count: 1 }],
+    maxLevel: 3,
   },
   "road-authority": {
     name: "Road Authority",
@@ -150,8 +212,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 2000,
     largeCost: 4000,
     upgradeCost: 2500,
+    staffCost: 350,
+    vehicleCost: 1500,
     color: "hsl(38, 90%, 55%)",
     vehicles: [{ type: "Utility Truck", count: 2 }],
+    maxLevel: 3,
   },
   morgue: {
     name: "Morgue",
@@ -159,8 +224,11 @@ export const BUILDING_CONFIGS: Record<
     smallCost: 1500,
     largeCost: 3000,
     upgradeCost: 2000,
+    staffCost: 250,
+    vehicleCost: 1000,
     color: "hsl(220, 10%, 50%)",
     vehicles: [{ type: "Transport Van", count: 1 }],
+    maxLevel: 3,
   },
 }
 
@@ -172,6 +240,7 @@ export const MISSION_CONFIGS: Record<
     baseReward: number
     basePenalty: number
     baseTimeLimit: number
+    workDuration: number
     requiredBuildings: BuildingType[]
     icon: string
     color: string
@@ -188,6 +257,7 @@ export const MISSION_CONFIGS: Record<
     baseReward: 1500,
     basePenalty: 800,
     baseTimeLimit: 60,
+    workDuration: 10,
     requiredBuildings: ["fire-station"],
     icon: "Flame",
     color: "hsl(16, 85%, 55%)",
@@ -203,6 +273,7 @@ export const MISSION_CONFIGS: Record<
     baseReward: 1200,
     basePenalty: 600,
     baseTimeLimit: 45,
+    workDuration: 8,
     requiredBuildings: ["ambulance-station", "police-station"],
     icon: "CarFront",
     color: "hsl(38, 90%, 55%)",
@@ -218,6 +289,7 @@ export const MISSION_CONFIGS: Record<
     baseReward: 1000,
     basePenalty: 500,
     baseTimeLimit: 30,
+    workDuration: 6,
     requiredBuildings: ["hospital", "ambulance-station"],
     icon: "HeartPulse",
     color: "hsl(0, 72%, 55%)",
@@ -233,6 +305,7 @@ export const MISSION_CONFIGS: Record<
     baseReward: 1300,
     basePenalty: 700,
     baseTimeLimit: 40,
+    workDuration: 8,
     requiredBuildings: ["police-station"],
     icon: "ShieldAlert",
     color: "hsl(220, 75%, 55%)",
@@ -248,6 +321,7 @@ export const MISSION_CONFIGS: Record<
     baseReward: 800,
     basePenalty: 400,
     baseTimeLimit: 90,
+    workDuration: 15,
     requiredBuildings: ["road-authority"],
     icon: "AlertTriangle",
     color: "hsl(38, 90%, 55%)",
