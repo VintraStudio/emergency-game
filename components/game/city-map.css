@@ -5,7 +5,7 @@
   flex: 1;
   width: 100%;
   height: 100%;
-  background: #0d1117;
+  background: #1c1e24;
   overflow: hidden;
 }
 
@@ -14,12 +14,12 @@
   height: 100%;
 }
 
-/* Tile styling for dark theme */
+/* Tile styling: desaturate and darken Positron tiles into a neutral gray */
 .game-tile {
   margin: -0.5px !important;
   padding: 0.5px !important;
   image-rendering: -webkit-optimize-contrast;
-  filter: brightness(0.95) contrast(1.15) saturate(0.85);
+  filter: brightness(0.72) contrast(1.1) saturate(0.15);
 }
 
 /* --- Ghost Marker for plassering --- */
@@ -83,7 +83,7 @@
 
 /* --- Ikon Styling --- */
 .map-icon-building {
-  background: rgba(20, 22, 30, 0.9);
+  background: rgba(28, 30, 38, 0.92);
   border: 2.5px solid;
   border-radius: 8px;
   display: flex;
@@ -91,7 +91,7 @@
   justify-content: center;
   position: relative;
   transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5);
 }
 
 .map-icon-building svg {
@@ -123,7 +123,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid rgba(20, 22, 30, 0.9);
+  border: 2px solid rgba(28, 30, 38, 0.92);
   box-shadow: 0 2px 4px rgba(0,0,0,0.4);
 }
 
@@ -170,13 +170,13 @@
 }
 
 .game-tooltip {
-  background: rgba(14, 16, 24, 0.95) !important;
-  color: #fff !important;
-  border: 1px solid rgba(255,255,255,0.1) !important;
+  background: rgba(28, 30, 38, 0.96) !important;
+  color: #e8e8ec !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
   border-radius: 6px !important;
   padding: 4px 10px !important;
   font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.45) !important;
 }
 
 .map-hint {

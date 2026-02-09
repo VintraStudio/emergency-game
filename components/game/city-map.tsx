@@ -109,8 +109,8 @@ export function CityMap({
         zoomSnap: 0.5,
       })
 
-      // Dark map theme for higher contrast with routes and markers
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      // Neutral gray map theme: CartoDB Positron (light gray) desaturated via CSS
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
         subdomains: "abcd",
         className: "game-tile" 
       }).addTo(map)
