@@ -25,9 +25,9 @@ const INITIAL_STATE: GameState = {
   buildings: [],
   missions: [],
   vehicles: [],
-  gameTime: Date.now(),  // Start with current real time
-  gameStartTime: Date.now(),  // When game was started
-  gameSpeed: 1,         // Normal speed
+  gameTime: Date.now(),
+  gameStartTime: Date.now(),
+  gameSpeed: 1,
   isPaused: true,
   gameOver: false,
   selectedBuilding: null,
@@ -38,6 +38,11 @@ const INITIAL_STATE: GameState = {
   missionsFailed: 0,
   city: null,
 }
+
+// Tracks the real wall-clock time of the last tick so we can compute deltas
+let lastTickRealTime = Date.now()
+// Tracks the real wall-clock time of the last time update for smooth display
+let lastTimeUpdateRealTime = Date.now()
 
 let state: GameState = { ...INITIAL_STATE }
 const listeners = new Set<() => void>()
@@ -89,20 +94,25 @@ function interpolateRoute(from: LatLng, to: LatLng): LatLng[] {
   return points
 }
 
-// Vehicle movement: advance along routeCoords by a fixed number of points per tick
-const ROUTE_POINTS_PER_TICK = 3
+// Vehicle movement: advance along routeCoords, scaled by game speed.
+// OSRM routes can have 100-500+ coordinate points; we advance several points
+// per tick (500ms) so vehicles visibly move. At 1x speed a vehicle should
+// traverse a typical city route (~200 points) in roughly 15-20 seconds.
+const BASE_ROUTE_POINTS_PER_TICK = 8
 
-function moveVehicleAlongRoute(v: Vehicle): Vehicle {
+function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
   if (v.routeCoords.length === 0 || v.routeIndex >= v.routeCoords.length - 1) {
     return v
   }
 
-  const newIndex = Math.min(v.routeIndex + ROUTE_POINTS_PER_TICK, v.routeCoords.length - 1)
-  const pos = v.routeCoords[newIndex]
+  const pointsToMove = BASE_ROUTE_POINTS_PER_TICK * gameSpeed
+  const newIndex = Math.min(v.routeIndex + pointsToMove, v.routeCoords.length - 1)
+  // Floor the index to access valid array positions; keep fractional for smooth accumulation
+  const pos = v.routeCoords[Math.floor(newIndex)]
 
   return {
     ...v,
-    position: { ...pos },
+    position: { lat: pos.lat, lng: pos.lng },
     routeIndex: newIndex,
   }
 }
@@ -205,7 +215,7 @@ function smartMissionPosition(city: CityConfig, missionType: MissionType, buildi
       position = randomPositionInCity(city)
   }
   
-  return randomPositionInCity(city); 
+  return position
 }
 
 // Generate a random position within city bounds (fallback)
@@ -493,11 +503,6 @@ export function useGameActions() {
       missionType: type,
       activeMissions: state.missions.filter(m => m.status === "pending" || m.status === "dispatched").length
     })
-    const currentTime = Date.now()
-    const realElapsed = currentTime - state.gameStartTime
-    const gameElapsed = realElapsed * 60 * state.gameSpeed
-    const currentGameTime = state.gameStartTime + gameElapsed
-
     const mission: Mission = {
       id: genId("msn"),
       type,
@@ -512,7 +517,7 @@ export function useGameActions() {
       requiredBuildings: config.requiredBuildings,
       dispatchedVehicles: [],
       workDuration: config.workDuration,
-      createdAt: currentGameTime,
+      createdAt: state.gameTime,
     }
 
     state = { ...state, missions: [...state.missions, mission] }
@@ -522,30 +527,28 @@ export function useGameActions() {
   const tick = useCallback(() => {
     if (state.isPaused || state.gameOver) return
 
-    const currentTime = Date.now()
-    const realElapsed = currentTime - state.gameStartTime
-    // 1 real second = 1 game minute at 1x speed
-    const gameElapsed = realElapsed * 60 * state.gameSpeed
-    const newGameTime = state.gameStartTime + gameElapsed
+    const now = Date.now()
+    const realDeltaMs = now - lastTickRealTime
+    lastTickRealTime = now
+    // Also sync the time-update clock so they don't diverge
+    lastTimeUpdateRealTime = now
 
-    console.log(`[Tick] Running - gameTime: ${new Date(newGameTime).toLocaleTimeString()}, speed: ${state.gameSpeed}`)
+    // Game minutes elapsed this tick: realDeltaMs converted to seconds, then
+    // 1 real second = 1 game minute, multiplied by speed
+    const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
+    const newGameTime = state.gameTime + gameMinutesDelta * 60000 // add as ms offset
 
     let newMoney = state.money
     let completed = state.missionsCompleted
     let failed = state.missionsFailed
 
-    // --- Move vehicles ---
-    console.log(`[Tick] Processing ${state.vehicles.length} vehicles`)
+    // --- Move vehicles (speed-scaled) ---
     let updatedVehicles = state.vehicles.map((v) => {
-      console.log(`[Tick] Vehicle ${v.id}: status=${v.status}, routeLength=${v.routeCoords.length}`)
       if (v.status === "dispatched") {
         if (v.routeCoords.length === 0) return v // still waiting for route
-        const moved = moveVehicleAlongRoute(v)
-        console.log(`[Vehicle] ${v.id} moved from index ${v.routeIndex} to ${moved.routeIndex}`)
-        // Check if arrived at destination
+        const moved = moveVehicleAlongRoute(v, state.gameSpeed)
         if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const mission = state.missions.find((m) => m.id === v.missionId)
-          console.log(`[Vehicle] ${v.id} arrived at mission:`, mission?.id)
           return {
             ...moved,
             status: "working" as VehicleStatus,
@@ -556,9 +559,9 @@ export function useGameActions() {
       }
 
       if (v.status === "working") {
-        const remaining = v.workTimeRemaining - 1
+        // Work time decreases by game minutes elapsed this tick
+        const remaining = v.workTimeRemaining - gameMinutesDelta
         if (remaining <= 0) {
-          // Done working - fetch return route async
           const building = state.buildings.find((b) => b.id === v.buildingId)
           if (building) {
             fetchRoute(v.position, building.position).then((routeCoords) => {
@@ -574,7 +577,7 @@ export function useGameActions() {
               ...v,
               status: "returning" as VehicleStatus,
               workTimeRemaining: 0,
-              routeCoords: [], // will be filled by async call
+              routeCoords: [],
               routeIndex: 0,
             }
           }
@@ -584,8 +587,8 @@ export function useGameActions() {
       }
 
       if (v.status === "returning") {
-        if (v.routeCoords.length === 0) return v // still waiting for return route
-        const moved = moveVehicleAlongRoute(v)
+        if (v.routeCoords.length === 0) return v
+        const moved = moveVehicleAlongRoute(v, state.gameSpeed)
         if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const building = state.buildings.find((b) => b.id === v.buildingId)
           return {
@@ -603,15 +606,12 @@ export function useGameActions() {
       return v
     })
 
-    // --- Update missions ---
+    // --- Update missions (delta-based) ---
     const updatedMissions = state.missions
       .map((m) => {
         if (m.status === "completed" || m.status === "failed") return m
 
-        // Calculate time elapsed in minutes based on game speed
-        // gameElapsed is already in game minutes (real seconds * 60)
-        const elapsedMinutes = (gameElapsed / 1000)
-        const newTime = Math.max(0, m.timeRemaining - elapsedMinutes)
+        const newTime = Math.max(0, m.timeRemaining - gameMinutesDelta)
 
         // Check if all dispatched vehicles finished working
         if (m.status === "dispatched") {
@@ -683,13 +683,15 @@ export function useGameActions() {
   }, [])
 
   const updateTime = useCallback(() => {
-    // Update game time based on current speed
+    // Delta-based time update: only advances by the real time elapsed since
+    // the last call, scaled by the *current* speed. This avoids jumps when
+    // switching speed modes because we never recompute the entire elapsed time.
     if (!state.isPaused && !state.gameOver) {
-      const currentTime = Date.now()
-      const realElapsed = currentTime - state.gameStartTime
-      // 1 real second = 1 game minute at 1x speed
-      const gameElapsed = realElapsed * 60 * state.gameSpeed
-      const newGameTime = state.gameStartTime + gameElapsed
+      const now = Date.now()
+      const realDeltaMs = now - lastTimeUpdateRealTime
+      lastTimeUpdateRealTime = now
+      const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
+      const newGameTime = state.gameTime + gameMinutesDelta * 60000
       state = { ...state, gameTime: newGameTime }
       emit()
     }
@@ -727,10 +729,21 @@ export function useGameActions() {
       emit()
     },
     togglePause: () => {
+      const willUnpause = state.isPaused
+      if (willUnpause) {
+        // Resync clocks so the first tick/update doesn't include the paused duration
+        const now = Date.now()
+        lastTickRealTime = now
+        lastTimeUpdateRealTime = now
+      }
       state = { ...state, isPaused: !state.isPaused }
       emit()
     },
     setGameSpeed: (speed: 1 | 2 | 3) => {
+      // Resync clocks so the speed change takes effect cleanly from this moment
+      const now = Date.now()
+      lastTickRealTime = now
+      lastTimeUpdateRealTime = now
       state = { ...state, gameSpeed: speed }
       emit()
     },
@@ -739,9 +752,9 @@ export function useGameActions() {
       emit()
     },
     startGame: () => {
-      // Set start time when game starts for first time
       const now = Date.now()
-      console.log(`[Game] Starting game at:`, new Date(now).toLocaleTimeString())
+      lastTickRealTime = now
+      lastTimeUpdateRealTime = now
       state = { 
         ...state, 
         gameTime: now, 

@@ -46,7 +46,7 @@ export function GameClient() {
     }
   }, [started, actions])
 
-  // Mission generation -- every 8-15 seconds when not paused
+  // Mission generation -- interval scales inversely with game speed
   useEffect(() => {
     if (!started || state.isPaused || state.gameOver) {
       if (missionTimerRef.current) clearInterval(missionTimerRef.current)
@@ -54,16 +54,18 @@ export function GameClient() {
     }
 
     const spawnMission = () => {
-      actions.generateMission() // generateMission handles the limit check
+      actions.generateMission()
     }
 
-    const delay = Math.random() * 7000 + 8000 // 8-15 seconds
+    // Base interval 8-15s, divided by speed so missions come faster at higher speed
+    const baseDelay = Math.random() * 7000 + 8000
+    const delay = baseDelay / state.gameSpeed
     missionTimerRef.current = setInterval(spawnMission, delay)
 
     return () => {
       if (missionTimerRef.current) clearInterval(missionTimerRef.current)
     }
-  }, [started, state.isPaused, state.gameOver, actions])
+  }, [started, state.isPaused, state.gameOver, state.gameSpeed, actions])
 
   const handleStart = useCallback((city: CityConfig) => {
     actions.setCity(city)
