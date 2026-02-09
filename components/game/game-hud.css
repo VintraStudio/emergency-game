@@ -2,10 +2,11 @@
 
 .game-hud {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1rem;
-  background: hsl(var(--card) / 0.9);
+  background: rgba(14, 16, 24, 0.70);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid hsl(var(--border));
 }
@@ -20,10 +21,65 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-family: 'Courier New', monospace;
+}
+
+.time-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.time {
   font-size: 1rem;
   font-weight: 600;
   color: hsl(var(--foreground));
-  font-family: 'Courier New', monospace;
+}
+
+.date {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.hud-speed {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: hsl(var(--foreground));
+}
+
+.speed-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.speed-button {
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 2rem;
+  transition: all 0.2s;
+}
+
+.speed-button:hover {
+  background: hsl(var(--muted)/0.8);
+  transform: translateY(-1px);
+}
+
+.speed-button.active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+
+.speed-button:focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 .hud-money {
@@ -32,9 +88,19 @@
   gap: 0.5rem;
   font-size: 1.25rem;
   font-weight: 700;
-  color: hsl(var(--primary));
 }
-
+.money{
+  color: green;
+}
+.lighting{
+  color: yellow;
+}
+.fail{
+  color: red;
+}
+.check{
+  color: green;
+}
 .hud-population {
   display: flex;
   align-items: center;

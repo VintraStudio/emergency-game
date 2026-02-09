@@ -33,6 +33,19 @@ export function GameClient() {
     }
   }, [started, actions])
 
+  // Time update -- every 100ms for smooth time display
+  useEffect(() => {
+    if (!started) return
+
+    const timeUpdateInterval = setInterval(() => {
+      actions.updateTime() // Update time display
+    }, 100)
+
+    return () => {
+      if (timeUpdateInterval) clearInterval(timeUpdateInterval)
+    }
+  }, [started, actions])
+
   // Mission generation -- every 8-15 seconds when not paused
   useEffect(() => {
     if (!started || state.isPaused || state.gameOver) {
@@ -41,12 +54,7 @@ export function GameClient() {
     }
 
     const spawnMission = () => {
-      const activeMissions = state.missions.filter(
-        (m) => m.status === "pending" || m.status === "dispatched",
-      ).length
-      if (activeMissions < 6) {
-        actions.generateMission()
-      }
+      actions.generateMission() // generateMission handles the limit check
     }
 
     const delay = Math.random() * 7000 + 8000 // 8-15 seconds
@@ -78,7 +86,7 @@ export function GameClient() {
     <div className="game-client">
       {/* Top HUD */}
       <header className="game-header">
-        <GameHud state={state} onTogglePause={actions.togglePause} />
+        <GameHud state={state} onTogglePause={actions.togglePause} onSetGameSpeed={actions.setGameSpeed} />
       </header>
 
       {/* Main Content */}
@@ -87,32 +95,66 @@ export function GameClient() {
         <aside className="game-sidebar">
           <div className="game-tabs">
             <div className="game-tabs-list">
-              <button className={`game-tab ${!state.placingBuilding ? "active" : ""}`}>
+              <button 
+                className={`game-tab ${!state.selectedMission ? "active" : ""}`}
+                onClick={() => {
+                  actions.selectMission(null)
+                  actions.setPlacing(null)
+                }}
+              >
                 <Building2 className="w-4 h-4" />
                 Build
               </button>
-              <button className={`game-tab ${state.selectedMission ? "active" : ""}`}>
+              <button 
+                className={`game-tab ${state.selectedMission ? "active" : ""}`}
+                onClick={() => {
+                  // Just select a dummy mission to show missions panel
+                  const dummyMission = {
+                    id: 'missions-view',
+                    type: 'fire' as const,
+                    title: 'Missions',
+                    description: 'View all active missions',
+                    status: 'pending' as const,
+                    timeRemaining: 0,
+                    timeLimit: 0,
+                    reward: 0,
+                    penalty: 0,
+                    requiredBuildings: [],
+                    position: { lat: 0, lng: 0 },
+                    vehicles: [],
+                    dispatchedVehicles: [],
+                    workDuration: 0,
+                    createdAt: Date.now()
+                  }
+                  actions.selectMission(dummyMission)
+                  
+                  // Also try to generate a mission for testing
+                  setTimeout(() => {
+                    actions.generateMission()
+                  }, 1000)
+                }}
+              >
                 <Zap className="w-4 h-4" />
                 Missions
               </button>
             </div>
-            <div className="m-0 min-h-0 flex-1">
-              {!state.placingBuilding && (
+            <div className="game-tabs-content">
+              {!state.selectedMission && (
                 <BuildingPanel
-                  money={state.money}
+                  state={state}
                   placingBuilding={state.placingBuilding}
-                  onSetPlacing={actions.setPlacing}
                   selectedBuilding={state.selectedBuilding}
+                  onSetPlacing={actions.setPlacing}
                   onUpgrade={actions.upgradeBuilding}
                   onSell={actions.sellBuilding}
                   onDeselect={() => actions.selectBuilding(null)}
-                  onManage={actions.openBuildingManager}
+                  onManage={() => actions.openBuildingManager(null)}
                 />
               )}
               {state.selectedMission && (
                 <MissionPanel
                   missions={state.missions}
-                  selectedMission={state.selectedMission}
+                  selectedMission={state.selectedMission.id === 'missions-view' ? null : state.selectedMission}
                   onSelectMission={actions.selectMission}
                   onDispatch={actions.dispatchVehicle}
                   buildingTypes={buildingTypes}

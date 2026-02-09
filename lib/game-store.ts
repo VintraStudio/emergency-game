@@ -20,12 +20,14 @@ function genId(prefix: string) {
 }
 
 const INITIAL_STATE: GameState = {
-  money: 20000,
-  population: 125000,
+  money: 50000,
+  population: 0,
   buildings: [],
   missions: [],
   vehicles: [],
-  gameTime: 0,
+  gameTime: Date.now(),  // Start with current real time
+  gameStartTime: Date.now(),  // When game was started
+  gameSpeed: 1,         // Normal speed
   isPaused: true,
   gameOver: false,
   selectedBuilding: null,
@@ -105,7 +107,108 @@ function moveVehicleAlongRoute(v: Vehicle): Vehicle {
   }
 }
 
-// Generate a random position within city bounds
+// Generate a smart position based on mission type and city structure
+function smartMissionPosition(city: CityConfig, missionType: MissionType, buildings: Building[]): LatLng {
+
+  // 1. Sjanse for å spawne nær eksisterende bygninger (f.eks. 70% sjanse)
+  if (buildings.length > 0 && Math.random() < 0.7) {
+    const randomBuilding = buildings[Math.floor(Math.random() * buildings.length)];
+    
+    // Spawn innenfor en radius på ca 1-1.5 km (0.015 grader)
+    return {
+      lat: randomBuilding.position.lat + (Math.random() - 0.5) * 0.03,
+      lng: randomBuilding.position.lng + (Math.random() - 0.5) * 0.03
+    };
+  }
+
+  // 2. Fallback til den gamle logikken (spredt i hele byen) hvis ingen bygg 
+  // eller hvis den faller i de resterende 30%
+  const cityCenter = {
+    lat: (city.bounds.north + city.bounds.south) / 2,
+    lng: (city.bounds.east + city.bounds.west) / 2
+  };
+  
+  // Define road network area (main corridors)
+  const roadArea = {
+    north: city.bounds.north * 0.9,
+    south: city.bounds.south * 1.1,
+    east: city.bounds.east * 0.9,
+    west: city.bounds.west * 1.1
+  }
+  
+  // Water areas (avoid for most missions)
+  const waterAreas = [
+    { north: city.bounds.north * 0.95, south: city.bounds.north * 0.85, east: city.bounds.east * 0.8, west: city.bounds.west * 1.2 },
+    { north: city.bounds.south * 1.15, south: city.bounds.south * 1.05, east: city.bounds.east * 0.8, west: city.bounds.west * 1.2 }
+  ]
+  
+  let position: LatLng
+  
+  switch (missionType) {
+    case "traffic-accident":
+      // Traffic accidents happen on roads
+      position = {
+        lat: roadArea.south + Math.random() * (roadArea.north - roadArea.south),
+        lng: roadArea.west + Math.random() * (roadArea.east - roadArea.west)
+      }
+      break
+      
+    case "fire":
+      // Fires can happen anywhere but avoid water
+      do {
+        position = randomPositionInCity(city)
+      } while (waterAreas.some(water => 
+        position.lat >= water.south && position.lat <= water.north &&
+        position.lng >= water.west && position.lng <= water.east
+      ))
+      break
+      
+    case "medical-emergency":
+      // Medical emergencies in populated areas (city center)
+      const radius = Math.min(
+        (city.bounds.north - city.bounds.south) * 0.3,
+        (city.bounds.east - city.bounds.west) * 0.3
+      )
+      position = {
+        lat: cityCenter.lat + (Math.random() - 0.5) * radius * 2,
+        lng: cityCenter.lng + (Math.random() - 0.5) * radius * 2
+      }
+      break
+      
+    case "crime":
+      // Crime happens in urban areas, avoid water
+      do {
+        position = {
+          lat: city.bounds.south + Math.random() * (city.bounds.north - city.bounds.south),
+          lng: city.bounds.west + Math.random() * (city.bounds.east - city.bounds.west)
+        }
+      } while (waterAreas.some(water => 
+        position.lat >= water.south && position.lat <= water.north &&
+        position.lng >= water.west && position.lng <= water.east
+      ))
+      break
+      
+    case "infrastructure":
+      // Infrastructure issues near roads and city edges
+      const edgeBias = Math.random() > 0.5
+      position = {
+        lat: edgeBias 
+          ? (Math.random() > 0.5 ? city.bounds.north * 0.95 : city.bounds.south * 1.05)
+          : roadArea.south + Math.random() * (roadArea.north - roadArea.south),
+        lng: edgeBias
+          ? roadArea.west + Math.random() * (roadArea.east - roadArea.west)
+          : (Math.random() > 0.5 ? city.bounds.east * 0.95 : city.bounds.west * 1.05)
+      }
+      break
+      
+    default:
+      position = randomPositionInCity(city)
+  }
+  
+  return randomPositionInCity(city); 
+}
+
+// Generate a random position within city bounds (fallback)
 function randomPositionInCity(city: CityConfig): LatLng {
   return {
     lat: city.bounds.south + Math.random() * (city.bounds.north - city.bounds.south),
@@ -308,6 +411,8 @@ export function useGameActions() {
     const mission = state.missions.find((m) => m.id === missionId)
     if (!mission || mission.status !== "pending") return
 
+    console.log(`[Dispatch] Starting dispatch for mission:`, missionId, mission.type)
+
     const requiredTypes = mission.requiredBuildings
     const availableVehicles: Vehicle[] = []
 
@@ -319,14 +424,19 @@ export function useGameActions() {
         )
         if (idle) {
           availableVehicles.push(idle)
+          console.log(`[Dispatch] Found vehicle:`, idle.id, `from building:`, bld.type)
           break
         }
       }
     }
 
-    if (availableVehicles.length === 0) return
+    if (availableVehicles.length === 0) {
+      console.log(`[Dispatch] No available vehicles for mission:`, missionId)
+      return
+    }
 
     const vehicleIds = availableVehicles.map((v) => v.id)
+    console.log(`[Dispatch] Dispatching vehicles:`, vehicleIds)
 
     // Mark as dispatched immediately, routes will be fetched async
     state = {
@@ -348,6 +458,7 @@ export function useGameActions() {
     // Fetch routes asynchronously for each vehicle
     for (const veh of availableVehicles) {
       fetchRoute(veh.position, mission.position).then((routeCoords) => {
+        console.log(`[Route] Fetched route for vehicle:`, veh.id, `points:`, routeCoords.length)
         state = {
           ...state,
           vehicles: state.vehicles.map((v) =>
@@ -360,14 +471,32 @@ export function useGameActions() {
   }, [])
 
   const generateMission = useCallback(() => {
-    if (!state.city) return
+    if (!state.city || state.isPaused || state.gameOver) return
+
+    // Check current active missions to ensure we don't exceed 5
+    const activeMissions = state.missions.filter(
+      (m) => m.status === "pending" || m.status === "dispatched"
+    ).length
+    if (activeMissions >= 5) return
 
     const types: MissionType[] = ["fire", "traffic-accident", "medical-emergency", "crime", "infrastructure"]
     const type = types[Math.floor(Math.random() * types.length)]
     const config = MISSION_CONFIGS[type]
     const titleIndex = Math.floor(Math.random() * config.titles.length)
 
-    const position = randomPositionInCity(state.city)
+    const position = smartMissionPosition(state.city, type, state.buildings)
+    
+    // Debug: Log mission spawn location
+    console.log(`[Mission] ${type} spawned at:`, {
+      lat: position.lat.toFixed(4),
+      lng: position.lng.toFixed(4),
+      missionType: type,
+      activeMissions: state.missions.filter(m => m.status === "pending" || m.status === "dispatched").length
+    })
+    const currentTime = Date.now()
+    const realElapsed = currentTime - state.gameStartTime
+    const gameElapsed = realElapsed * 60 * state.gameSpeed
+    const currentGameTime = state.gameStartTime + gameElapsed
 
     const mission: Mission = {
       id: genId("msn"),
@@ -383,7 +512,7 @@ export function useGameActions() {
       requiredBuildings: config.requiredBuildings,
       dispatchedVehicles: [],
       workDuration: config.workDuration,
-      createdAt: state.gameTime,
+      createdAt: currentGameTime,
     }
 
     state = { ...state, missions: [...state.missions, mission] }
@@ -393,18 +522,30 @@ export function useGameActions() {
   const tick = useCallback(() => {
     if (state.isPaused || state.gameOver) return
 
+    const currentTime = Date.now()
+    const realElapsed = currentTime - state.gameStartTime
+    // 1 real second = 1 game minute at 1x speed
+    const gameElapsed = realElapsed * 60 * state.gameSpeed
+    const newGameTime = state.gameStartTime + gameElapsed
+
+    console.log(`[Tick] Running - gameTime: ${new Date(newGameTime).toLocaleTimeString()}, speed: ${state.gameSpeed}`)
+
     let newMoney = state.money
     let completed = state.missionsCompleted
     let failed = state.missionsFailed
 
     // --- Move vehicles ---
+    console.log(`[Tick] Processing ${state.vehicles.length} vehicles`)
     let updatedVehicles = state.vehicles.map((v) => {
+      console.log(`[Tick] Vehicle ${v.id}: status=${v.status}, routeLength=${v.routeCoords.length}`)
       if (v.status === "dispatched") {
         if (v.routeCoords.length === 0) return v // still waiting for route
         const moved = moveVehicleAlongRoute(v)
+        console.log(`[Vehicle] ${v.id} moved from index ${v.routeIndex} to ${moved.routeIndex}`)
         // Check if arrived at destination
         if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const mission = state.missions.find((m) => m.id === v.missionId)
+          console.log(`[Vehicle] ${v.id} arrived at mission:`, mission?.id)
           return {
             ...moved,
             status: "working" as VehicleStatus,
@@ -467,7 +608,10 @@ export function useGameActions() {
       .map((m) => {
         if (m.status === "completed" || m.status === "failed") return m
 
-        const newTime = m.timeRemaining - 1
+        // Calculate time elapsed in minutes based on game speed
+        // gameElapsed is already in game minutes (real seconds * 60)
+        const elapsedMinutes = (gameElapsed / 1000)
+        const newTime = Math.max(0, m.timeRemaining - elapsedMinutes)
 
         // Check if all dispatched vehicles finished working
         if (m.status === "dispatched") {
@@ -530,12 +674,25 @@ export function useGameActions() {
       money: newMoney,
       missions: updatedMissions,
       vehicles: updatedVehicles,
-      gameTime: state.gameTime + 1,
       missionsCompleted: completed,
       missionsFailed: failed,
+      gameTime: newGameTime,
       gameOver: isGameOver,
     }
     emit()
+  }, [])
+
+  const updateTime = useCallback(() => {
+    // Update game time based on current speed
+    if (!state.isPaused && !state.gameOver) {
+      const currentTime = Date.now()
+      const realElapsed = currentTime - state.gameStartTime
+      // 1 real second = 1 game minute at 1x speed
+      const gameElapsed = realElapsed * 60 * state.gameSpeed
+      const newGameTime = state.gameStartTime + gameElapsed
+      state = { ...state, gameTime: newGameTime }
+      emit()
+    }
   }, [])
 
   return {
@@ -547,6 +704,7 @@ export function useGameActions() {
     dispatchVehicle,
     generateMission,
     tick,
+    updateTime,
     setPlacing: (type: BuildingType | null) => {
       state = { ...state, placingBuilding: type }
       emit()
@@ -572,12 +730,24 @@ export function useGameActions() {
       state = { ...state, isPaused: !state.isPaused }
       emit()
     },
+    setGameSpeed: (speed: 1 | 2 | 3) => {
+      state = { ...state, gameSpeed: speed }
+      emit()
+    },
     setCity: (city: CityConfig) => {
       state = { ...state, city, population: city.population }
       emit()
     },
     startGame: () => {
-      state = { ...state, isPaused: false }
+      // Set start time when game starts for first time
+      const now = Date.now()
+      console.log(`[Game] Starting game at:`, new Date(now).toLocaleTimeString())
+      state = { 
+        ...state, 
+        gameTime: now, 
+        gameStartTime: now,
+        isPaused: false 
+      }
       emit()
     },
     resetGame: () => {

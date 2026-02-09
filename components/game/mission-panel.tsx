@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import type { Mission } from "@/lib/game-types"
 import { MISSION_CONFIGS } from "@/lib/game-types"
+import { formatMissionTime } from "@/lib/time-utils"
 import "./mission-panel.css"
 
 const MISSION_ICONS: Record<string, typeof Flame> = {
@@ -108,7 +109,7 @@ export function MissionPanel({
                       : "mission-timer-critical"
                 }`}
               >
-                {selectedMission.timeRemaining}s
+                {formatMissionTime(selectedMission.timeRemaining)}
               </span>
             </div>
             <div className="mission-timer-bar">

@@ -1,122 +1,53 @@
 "use client"
 
 import {
-  Flame, Shield, Heart, Siren, Stethoscope, Construction, Building2,
-  ArrowUpCircle, Trash2, Truck, Users, X, Settings2,
+  Flame,
+  CarFront,
+  HeartPulse,
+  ShieldAlert,
+  AlertTriangle,
+  DollarSign,
+  Zap,
+  Truck,
+  Users,
+  Building2,
+  Wrench,
+  X,
 } from "lucide-react"
-import type { Building, BuildingType } from "@/lib/game-types"
+import type { Building, BuildingType, GameState } from "@/lib/game-types"
 import { BUILDING_CONFIGS } from "@/lib/game-types"
 import "./building-panel.css"
 
 const ICON_MAP: Record<string, typeof Flame> = {
-  Flame, Shield, Heart, Siren, Stethoscope, Construction, Building2,
+  flame: Flame,
+  "traffic-accident": CarFront,
+  "medical-emergency": HeartPulse,
+  crime: ShieldAlert,
+  infrastructure: AlertTriangle,
 }
 
 interface BuildingPanelProps {
-  money: number
+  state: GameState
   placingBuilding: BuildingType | null
-  onSetPlacing: (type: BuildingType | null) => void
   selectedBuilding: Building | null
-  onUpgrade: (buildingId: string) => void
-  onSell: (buildingId: string) => void
+  onSetPlacing: (type: BuildingType | null) => void
+  onUpgrade: (id: string) => void
+  onSell: (id: string) => void
   onDeselect: () => void
-  onManage: (building: Building) => void
+  onManage: () => void
 }
 
 export function BuildingPanel({
-  money, placingBuilding, onSetPlacing,
-  selectedBuilding, onUpgrade, onSell, onDeselect, onManage,
+  state,
+  placingBuilding,
+  selectedBuilding,
+  onSetPlacing,
+  onUpgrade,
+  onSell,
+  onDeselect,
+  onManage,
 }: BuildingPanelProps) {
-  const buildingTypes = Object.entries(BUILDING_CONFIGS) as [
-    BuildingType,
-    (typeof BUILDING_CONFIGS)[BuildingType],
-  ][]
-
-  if (selectedBuilding) {
-    const config = BUILDING_CONFIGS[selectedBuilding.type]
-    const Icon = ICON_MAP[config.icon]
-    const canUpgrade = selectedBuilding.level < config.maxLevel && money >= config.upgradeCost * selectedBuilding.level
-
-    return (
-      <div className="building-panel">
-        <div className="building-panel-header">
-          <h2 className="building-panel-title">Building Details</h2>
-          <button
-            onClick={onDeselect}
-            className="building-button"
-            aria-label="Close panel"
-          >
-            <X className="building-button-icon" />
-          </button>
-        </div>
-
-        <div className="building-panel-list">
-          <div className="building-item">
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-lg"
-              style={{ backgroundColor: `${config.color}20` }}
-            >
-              {Icon && <Icon className="h-5 w-5" style={{ color: config.color }} />}
-            </div>
-            <div className="building-item-info">
-              <h3 className="building-item-name">{selectedBuilding.name}</h3>
-              <p className="text-xs text-muted-foreground">
-                Level {selectedBuilding.level} -- {selectedBuilding.size === "large" ? "Large" : "Small"}
-              </p>
-            </div>
-          </div>
-
-          <div className="building-item-stats">
-            <div className="building-item-level">
-              <div className="building-item-vehicles-icon">
-                <Users className="building-button-icon" />
-              </div>
-              <span className="text-xs text-muted-foreground">Staff</span>
-              <span className="text-xs font-medium text-foreground">
-                {selectedBuilding.staff}/{selectedBuilding.maxStaff}
-              </span>
-            </div>
-            <div className="building-item-level">
-              <div className="building-item-vehicles-icon">
-                <Truck className="building-button-icon" />
-              </div>
-              <span className="text-xs text-muted-foreground">Vehicles</span>
-              <span className="text-xs font-medium text-foreground">
-                {selectedBuilding.vehicles.length}/{BUILDING_CONFIGS[selectedBuilding.type].vehicles.reduce((sum, v) => sum + v.count, 0)}
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <button
-              onClick={() => onManage(selectedBuilding)}
-              className="building-button"
-            >
-              <Settings2 className="building-button-icon" />
-              Manage Building
-            </button>
-            {selectedBuilding.level < config.maxLevel && (
-              <button
-                onClick={() => onUpgrade(selectedBuilding.id)}
-                disabled={!canUpgrade}
-                className="building-button primary"
-              >
-                <ArrowUpCircle className="building-button-icon" />
-                Upgrade (${(config.upgradeCost * selectedBuilding.level).toLocaleString()})
-              </button>
-            )}
-            <button
-              onClick={() => onSell(selectedBuilding.id)}
-              className="building-button danger"
-            >
-              <Trash2 className="building-button-icon" />
-              Sell (${Math.floor(selectedBuilding.cost * 0.5).toLocaleString()})
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const buildingTypes = Object.entries(BUILDING_CONFIGS) as [BuildingType, typeof BUILDING_CONFIGS['fire-station']][]
 
   return (
     <div className="building-panel">
@@ -125,11 +56,11 @@ export function BuildingPanel({
       </div>
 
       <div className="building-panel-list">
-        <div className="space-y-2">
+        <div className="building-list-container">
           {buildingTypes.map(([type, config]) => {
             const Icon = ICON_MAP[config.icon]
-            const isActive = placingBuilding === type
-            const canAfford = money >= config.smallCost
+            const isActive = state.placingBuilding === type
+            const canAfford = state.money >= config.smallCost
 
             return (
               <button
@@ -139,21 +70,21 @@ export function BuildingPanel({
                 className={`building-button ${isActive ? "primary" : ""}`}
               >
                 <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+                  className="building-icon-container"
                   style={{ backgroundColor: `${config.color}20` }}
                 >
-                  {Icon && <Icon className="h-4 w-4" style={{ color: config.color }} />}
+                  {Icon && <Icon className="building-button-icon" style={{ color: config.color }} />}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium text-foreground">{config.name}</div>
+                <div className="building-info">
+                  <div className="building-item-name">{config.name}</div>
                   <div className="building-cost">
                     <div className="building-cost-icon">
-                      <span className="building-button-icon" style={{ color: config.color }} />
+                      <DollarSign className="building-button-icon" style={{ color: config.color }} />
                     </div>
                     <span className="building-cost-amount">{config.smallCost.toLocaleString()}</span>
                   </div>
                 </div>
-                {isActive && <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                {isActive && <div className="building-active-indicator" />}
               </button>
             )
           })}

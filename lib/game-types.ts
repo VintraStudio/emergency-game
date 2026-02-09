@@ -1,3 +1,5 @@
+export type GameSpeed = 1 | 2 | 3
+
 export type BuildingType =
   | "fire-station"
   | "police-station"
@@ -86,7 +88,9 @@ export interface GameState {
   buildings: Building[]
   missions: Mission[]
   vehicles: Vehicle[]
-  gameTime: number
+  gameTime: number  // Current game time (real-time adjusted)
+  gameStartTime: number  // When game was started (real timestamp)
+  gameSpeed: GameSpeed
   isPaused: boolean
   gameOver: boolean
   selectedBuilding: Building | null
@@ -280,7 +284,7 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1500,
     basePenalty: 800,
-    baseTimeLimit: 60,
+    baseTimeLimit: 30,  // 30 minutes
     workDuration: 10,
     requiredBuildings: ["fire-station"],
     icon: "Flame",
@@ -296,7 +300,7 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1200,
     basePenalty: 600,
-    baseTimeLimit: 45,
+    baseTimeLimit: 20,  // 20 minutes
     workDuration: 8,
     requiredBuildings: ["ambulance-station", "police-station"],
     icon: "CarFront",
@@ -312,7 +316,7 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1000,
     basePenalty: 500,
-    baseTimeLimit: 30,
+    baseTimeLimit: 15,  // 15 minutes
     workDuration: 6,
     requiredBuildings: ["hospital", "ambulance-station"],
     icon: "HeartPulse",
@@ -328,7 +332,7 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1300,
     basePenalty: 700,
-    baseTimeLimit: 40,
+    baseTimeLimit: 25,  // 25 minutes
     workDuration: 8,
     requiredBuildings: ["police-station"],
     icon: "ShieldAlert",
@@ -344,7 +348,7 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 800,
     basePenalty: 400,
-    baseTimeLimit: 90,
+    baseTimeLimit: 45,  // 45 minutes
     workDuration: 15,
     requiredBuildings: ["road-authority"],
     icon: "AlertTriangle",
