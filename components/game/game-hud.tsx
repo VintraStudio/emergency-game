@@ -123,8 +123,15 @@ export function GameHud({ state, onTogglePause, onSetGameSpeed }: GameHudProps) 
         </div>
 
         {/* Active Missions */}
-        <div className={`hud-resource ${activeMissions > 0 ? "primary" : ""}`}>
-          <Zap className="lighting" />
+        <div className={`hud-resource ${state.unreadMissionCount > 0 ? "primary" : ""}`}>
+          <div className="relative">
+            <Zap className="lighting" />
+            {state.unreadMissionCount > 0 && (
+              <div className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-bold animate-pulse">
+                {state.unreadMissionCount}
+              </div>
+            )}
+          </div>
           <span className="hud-resource-count">{activeMissions}</span>
         </div>
       </div>

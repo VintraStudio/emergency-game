@@ -2,28 +2,26 @@
 
 import {
   Flame,
-  CarFront,
-  HeartPulse,
-  ShieldAlert,
-  AlertTriangle,
-  DollarSign,
-  Zap,
-  Truck,
-  Users,
+  Shield,
+  Heart,
+  Siren,
+  Stethoscope,
+  Construction,
   Building2,
-  Wrench,
-  X,
+  DollarSign,
 } from "lucide-react"
 import type { Building, BuildingType, GameState } from "@/lib/game-types"
 import { BUILDING_CONFIGS } from "@/lib/game-types"
 import "./building-panel.css"
 
-const ICON_MAP: Record<string, typeof Flame> = {
-  flame: Flame,
-  "traffic-accident": CarFront,
-  "medical-emergency": HeartPulse,
-  crime: ShieldAlert,
-  infrastructure: AlertTriangle,
+const BUILDING_ICON_MAP: Record<string, typeof Flame> = {
+  Flame,
+  Shield,
+  Heart,
+  Siren,
+  Stethoscope,
+  Construction,
+  Building2,
 }
 
 interface BuildingPanelProps {
@@ -58,7 +56,7 @@ export function BuildingPanel({
       <div className="building-panel-list">
         <div className="building-list-container">
           {buildingTypes.map(([type, config]) => {
-            const Icon = ICON_MAP[config.icon]
+            const Icon = BUILDING_ICON_MAP[config.icon]
             const isActive = state.placingBuilding === type
             const canAfford = state.money >= config.smallCost
 

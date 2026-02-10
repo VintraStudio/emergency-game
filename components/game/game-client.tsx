@@ -9,6 +9,8 @@ import { MissionPanel } from "./mission-panel"
 import { BuildingManager } from "./building-manager"
 import { GameOver } from "./game-over"
 import { StartScreen } from "./start-screen"
+import { MissionNotification } from "./mission-notification"
+import { GameLoop } from "./GameLoop"
 import { Building2, Zap } from "lucide-react"
 import type { CityConfig } from "@/lib/game-types"
 import "./game-client.css"
@@ -17,21 +19,24 @@ export function GameClient() {
   const state = useGameState()
   const actions = useGameActions()
   const [started, setStarted] = useState(false)
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const missionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Game loop -- tick every 500ms for vehicle movement
-  useEffect(() => {
-    if (!started) return
-
-    tickRef.current = setInterval(() => {
-      actions.tick()
-    }, 500)
-
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current)
-    }
-  }, [started, actions])
+  // Sentinel mission object for missions view
+  const sentinelMission = {
+    id: 'missions-view',
+    type: 'fire' as const,
+    title: 'Missions',
+    description: 'View all active missions',
+    status: 'pending' as const,
+    timeRemaining: 0,
+    timeLimit: 0,
+    reward: 0,
+    penalty: 0,
+    requiredBuildings: [],
+    dispatchedVehicles: [],
+    workDuration: 0,
+    createdAt: Date.now(),
+    position: { lat: 0, lng: 0 }
+  }
 
   // Time update -- every 100ms for smooth time display
   useEffect(() => {
@@ -46,24 +51,10 @@ export function GameClient() {
     }
   }, [started, actions])
 
-  // Mission generation -- every 8-15 seconds when not paused
-  useEffect(() => {
-    if (!started || state.isPaused || state.gameOver) {
-      if (missionTimerRef.current) clearInterval(missionTimerRef.current)
-      return
-    }
-
-    const spawnMission = () => {
-      actions.generateMission() // generateMission handles the limit check
-    }
-
-    const delay = Math.random() * 7000 + 8000 // 8-15 seconds
-    missionTimerRef.current = setInterval(spawnMission, delay)
-
-    return () => {
-      if (missionTimerRef.current) clearInterval(missionTimerRef.current)
-    }
-  }, [started, state.isPaused, state.gameOver, actions])
+  // Mission spawning is now handled internally by the game-store module
+  // via a self-rescheduling setTimeout chain. It starts on startGame() /
+  // togglePause(unpause) and stops on pause / game-over / reset.
+  // This means missions spawn regardless of which UI tab is open.
 
   const handleStart = useCallback((city: CityConfig) => {
     actions.setCity(city)
@@ -84,6 +75,9 @@ export function GameClient() {
 
   return (
     <div className="game-client">
+      {/* Game Loop - handles vehicle movement and game ticks */}
+      <GameLoop />
+      
       {/* Top HUD */}
       <header className="game-header">
         <GameHud state={state} onTogglePause={actions.togglePause} onSetGameSpeed={actions.setGameSpeed} />
@@ -108,30 +102,10 @@ export function GameClient() {
               <button 
                 className={`game-tab ${state.selectedMission ? "active" : ""}`}
                 onClick={() => {
-                  // Just select a dummy mission to show missions panel
-                  const dummyMission = {
-                    id: 'missions-view',
-                    type: 'fire' as const,
-                    title: 'Missions',
-                    description: 'View all active missions',
-                    status: 'pending' as const,
-                    timeRemaining: 0,
-                    timeLimit: 0,
-                    reward: 0,
-                    penalty: 0,
-                    requiredBuildings: [],
-                    position: { lat: 0, lng: 0 },
-                    vehicles: [],
-                    dispatchedVehicles: [],
-                    workDuration: 0,
-                    createdAt: Date.now()
-                  }
-                  actions.selectMission(dummyMission)
-                  
-                  // Also try to generate a mission for testing
-                  setTimeout(() => {
-                    actions.generateMission()
-                  }, 1000)
+                  // Mark missions as read when opening missions panel
+                  actions.markMissionsAsRead()
+                  // Use a sentinel mission object to signal "show missions list"
+                  actions.selectMission(sentinelMission)
                 }}
               >
                 <Zap className="w-4 h-4" />
@@ -192,6 +166,15 @@ export function GameClient() {
           onClose={() => actions.openBuildingManager(null)}
         />
       )}
+
+      {/* Mission Notifications */}
+      {state.newMissions.map((mission, index) => (
+        <MissionNotification
+          key={mission.id}
+          mission={mission}
+          onClose={() => actions.clearNewMissions()}
+        />
+      ))}
 
       {/* Game Over Overlay */}
       {state.gameOver && <GameOver state={state} onReset={handleReset} />}

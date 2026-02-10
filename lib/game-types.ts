@@ -20,7 +20,7 @@ export type MissionType =
 
 export type MissionStatus = "pending" | "dispatched" | "in-progress" | "completed" | "failed"
 
-export type VehicleStatus = "idle" | "dispatched" | "returning" | "working"
+export type VehicleStatus = "idle" | "preparing" | "dispatched" | "working" | "returning"
 
 // Geographic position using lat/lng for Leaflet
 export interface LatLng {
@@ -53,6 +53,7 @@ export interface Vehicle {
   routeIndex: number    // current index along routeCoords
   missionId?: string
   workTimeRemaining: number
+  preparationTimeRemaining?: number // Time remaining before starting to move
 }
 
 export interface Mission {
@@ -100,6 +101,8 @@ export interface GameState {
   missionsCompleted: number
   missionsFailed: number
   city: CityConfig | null
+  newMissions: Mission[] // Track newly spawned missions for notifications
+  unreadMissionCount: number // Track unread missions for badge notification
 }
 
 export const CITY_OPTIONS: CityConfig[] = [
@@ -284,8 +287,8 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1500,
     basePenalty: 800,
-    baseTimeLimit: 30,  // 30 minutes
-    workDuration: 10,
+    baseTimeLimit: 660,  // 11 hours
+    workDuration: 45,     // 45 minutes work time
     requiredBuildings: ["fire-station"],
     icon: "Flame",
     color: "#e86430",
@@ -300,8 +303,8 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1200,
     basePenalty: 600,
-    baseTimeLimit: 20,  // 20 minutes
-    workDuration: 8,
+    baseTimeLimit: 480,  // 8 hours
+    workDuration: 30,     // 30 minutes work time
     requiredBuildings: ["ambulance-station", "police-station"],
     icon: "CarFront",
     color: "#ddaa22",
@@ -316,8 +319,8 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1000,
     basePenalty: 500,
-    baseTimeLimit: 15,  // 15 minutes
-    workDuration: 6,
+    baseTimeLimit: 360,  // 6 hours
+    workDuration: 20,     // 20 minutes work time
     requiredBuildings: ["hospital", "ambulance-station"],
     icon: "HeartPulse",
     color: "#e04444",
@@ -332,8 +335,8 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 1300,
     basePenalty: 700,
-    baseTimeLimit: 25,  // 25 minutes
-    workDuration: 8,
+    baseTimeLimit: 540,  // 9 hours
+    workDuration: 35,     // 35 minutes work time
     requiredBuildings: ["police-station"],
     icon: "ShieldAlert",
     color: "#4488ee",
@@ -348,8 +351,8 @@ export const MISSION_CONFIGS: Record<
     ],
     baseReward: 800,
     basePenalty: 400,
-    baseTimeLimit: 45,  // 45 minutes
-    workDuration: 15,
+    baseTimeLimit: 720,  // 12 hours
+    workDuration: 50,     // 50 minutes work time
     requiredBuildings: ["road-authority"],
     icon: "AlertTriangle",
     color: "#ddaa22",

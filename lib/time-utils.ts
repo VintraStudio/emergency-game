@@ -39,13 +39,11 @@ export function formatMissionTime(minutes: number): string {
   return mins > 0 ? `${hours}t ${mins}min` : `${hours}t`
 }
 
-export function getSpeedMultiplier(speed: 1 | 2 | 4 | 8 | 16): string {
+export function getSpeedMultiplier(speed: 1 | 2 | 3): string {
   switch (speed) {
     case 1: return "1x"
     case 2: return "2x"
-    case 4: return "4x"
-    case 8: return "8x"
-    case 16: return "16x"
+    case 3: return "3x"
     default: return "1x"
   }
 }
