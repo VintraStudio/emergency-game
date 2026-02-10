@@ -69,7 +69,11 @@
 }
 
 .vehicle-marker {
-  transition: transform 0.2s linear; /* Glattere bevegelse */
+  /* No CSS transition -- Leaflet repositions the marker on every tick (500ms).
+     A CSS transition would interpolate between old/new positions making movement
+     buttery-smooth, but can also cause visual lag.  We let the store handle
+     sub-point interpolation instead for precise road-following. */
+  transition: none;
   z-index: 1000 !important;
 }
 .vehicle-working {

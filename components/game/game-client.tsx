@@ -18,7 +18,6 @@ export function GameClient() {
   const actions = useGameActions()
   const [started, setStarted] = useState(false)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const missionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Game loop -- tick every 500ms for vehicle movement
   useEffect(() => {
@@ -46,26 +45,10 @@ export function GameClient() {
     }
   }, [started, actions])
 
-  // Mission generation -- interval scales inversely with game speed
-  useEffect(() => {
-    if (!started || state.isPaused || state.gameOver) {
-      if (missionTimerRef.current) clearInterval(missionTimerRef.current)
-      return
-    }
-
-    const spawnMission = () => {
-      actions.generateMission()
-    }
-
-    // Base interval 8-15s, divided by speed so missions come faster at higher speed
-    const baseDelay = Math.random() * 7000 + 8000
-    const delay = baseDelay / state.gameSpeed
-    missionTimerRef.current = setInterval(spawnMission, delay)
-
-    return () => {
-      if (missionTimerRef.current) clearInterval(missionTimerRef.current)
-    }
-  }, [started, state.isPaused, state.gameOver, state.gameSpeed, actions])
+  // Mission spawning is now handled internally by the game-store module
+  // via a self-rescheduling setTimeout chain. It starts on startGame() /
+  // togglePause(unpause) and stops on pause / game-over / reset.
+  // This means missions spawn regardless of which UI tab is open.
 
   const handleStart = useCallback((city: CityConfig) => {
     actions.setCity(city)
@@ -110,8 +93,8 @@ export function GameClient() {
               <button 
                 className={`game-tab ${state.selectedMission ? "active" : ""}`}
                 onClick={() => {
-                  // Just select a dummy mission to show missions panel
-                  const dummyMission = {
+                  // Use a sentinel mission object to signal "show missions list"
+                  const sentinelMission = {
                     id: 'missions-view',
                     type: 'fire' as const,
                     title: 'Missions',
@@ -128,12 +111,7 @@ export function GameClient() {
                     workDuration: 0,
                     createdAt: Date.now()
                   }
-                  actions.selectMission(dummyMission)
-                  
-                  // Also try to generate a mission for testing
-                  setTimeout(() => {
-                    actions.generateMission()
-                  }, 1000)
+                  actions.selectMission(sentinelMission)
                 }}
               >
                 <Zap className="w-4 h-4" />
