@@ -627,6 +627,7 @@ export function useGameActions() {
               : v,
           )),
         }
+        pendingRoutes.delete(veh.id)
         emit()
         
         pendingRoutes.delete(veh.id)
