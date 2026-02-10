@@ -44,6 +44,10 @@ let lastTickRealTime = Date.now()
 // Tracks the real wall-clock time of the last time update for smooth display
 let lastTimeUpdateRealTime = Date.now()
 
+// --- Mission auto-spawn timer (independent of UI/tab state) ---
+let missionSpawnTimer: ReturnType<typeof setTimeout> | null = null
+let nextMissionSpawnTime = 0 // wall-clock ms when next mission should spawn
+
 let state: GameState = { ...INITIAL_STATE }
 const listeners = new Set<() => void>()
 
@@ -60,6 +64,23 @@ function subscribe(listener: () => void) {
 
 export function useGameState(): GameState {
   return useSyncExternalStore(subscribe, getState, getState)
+}
+
+// --- Pending route fetches: track in-flight route requests to merge into state safely ---
+const pendingRoutes = new Map<string, Promise<LatLng[]>>()
+
+// Safely apply a resolved route to the current state snapshot.
+// Because `state` may have been replaced by tick() in the meantime, we read
+// the *current* state at resolution time, not the stale closure.
+function applyRouteToVehicle(vehicleId: string, routeCoords: LatLng[]) {
+  state = {
+    ...state,
+    vehicles: state.vehicles.map((v) =>
+      v.id === vehicleId ? { ...v, routeCoords, routeIndex: 0 } : v,
+    ),
+  }
+  pendingRoutes.delete(vehicleId)
+  emit()
 }
 
 // --- OSRM routing ---
@@ -136,11 +157,21 @@ function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
   const pointsToMove = basePointsPerTick * gameSpeed
   const newIndex = Math.min(v.routeIndex + pointsToMove, v.routeCoords.length - 1)
   // Floor the index to access valid array positions; keep fractional for smooth accumulation
-  const pos = v.routeCoords[Math.floor(newIndex)]
+  const flooredIdx = Math.floor(newIndex)
+  const nextIdx = Math.min(flooredIdx + 1, v.routeCoords.length - 1)
+  const frac = newIndex - flooredIdx
+
+  // Interpolate between the two closest route points for smooth movement
+  const p0 = v.routeCoords[flooredIdx]
+  const p1 = v.routeCoords[nextIdx]
+  const pos = {
+    lat: p0.lat + (p1.lat - p0.lat) * frac,
+    lng: p0.lng + (p1.lng - p0.lng) * frac,
+  }
 
   return {
     ...v,
-    position: { lat: pos.lat, lng: pos.lng },
+    position: pos,
     routeIndex: newIndex,
   }
 }
@@ -184,6 +215,78 @@ function clampToCity(pos: LatLng, center: LatLng, latSpan: number, lngSpan: numb
   return {
     lat: Math.max(center.lat - latSpan, Math.min(center.lat + latSpan, pos.lat)),
     lng: Math.max(center.lng - lngSpan, Math.min(center.lng + lngSpan, pos.lng)),
+  }
+}
+
+// --- Internal mission generation (called by auto-spawn timer and manual trigger) ---
+function internalGenerateMission() {
+  if (!state.city || state.isPaused || state.gameOver) return
+
+  // Check current active missions to ensure we don't exceed 5
+  const activeMissions = state.missions.filter(
+    (m) => m.status === "pending" || m.status === "dispatched"
+  ).length
+  if (activeMissions >= 5) return
+
+  const types: MissionType[] = ["fire", "traffic-accident", "medical-emergency", "crime", "infrastructure"]
+  const type = types[Math.floor(Math.random() * types.length)]
+  const config = MISSION_CONFIGS[type]
+  const titleIndex = Math.floor(Math.random() * config.titles.length)
+
+  const position = smartMissionPosition(state.city, type, state.buildings)
+
+  const mission: Mission = {
+    id: genId("msn"),
+    type,
+    title: config.titles[titleIndex],
+    description: config.descriptions[titleIndex],
+    position,
+    status: "pending",
+    reward: config.baseReward + Math.floor(Math.random() * 500),
+    penalty: config.basePenalty + Math.floor(Math.random() * 200),
+    timeLimit: config.baseTimeLimit,
+    timeRemaining: config.baseTimeLimit,
+    requiredBuildings: config.requiredBuildings,
+    dispatchedVehicles: [],
+    workDuration: config.workDuration,
+    createdAt: state.gameTime,
+  }
+
+  state = { ...state, missions: [...state.missions, mission] }
+  emit()
+}
+
+// --- Auto-spawn scheduler: runs independently, uses setTimeout chain ---
+// Each spawn schedules the next with a random delay (8-15s base, scaled by speed).
+// This runs inside the store module itself so it is independent of which UI tab is open.
+function scheduleNextMissionSpawn() {
+  if (missionSpawnTimer) {
+    clearTimeout(missionSpawnTimer)
+    missionSpawnTimer = null
+  }
+
+  if (state.isPaused || state.gameOver || !state.city) return
+
+  // Random delay between 8s and 15s, divided by game speed
+  const baseDelay = 8000 + Math.random() * 7000
+  const delay = baseDelay / state.gameSpeed
+  nextMissionSpawnTime = Date.now() + delay
+
+  missionSpawnTimer = setTimeout(() => {
+    missionSpawnTimer = null
+    // Only spawn if game is still running
+    if (!state.isPaused && !state.gameOver && state.city) {
+      internalGenerateMission()
+      // Chain: schedule the next spawn
+      scheduleNextMissionSpawn()
+    }
+  }, delay)
+}
+
+function stopMissionSpawnTimer() {
+  if (missionSpawnTimer) {
+    clearTimeout(missionSpawnTimer)
+    missionSpawnTimer = null
   }
 }
 
@@ -402,7 +505,19 @@ export function useGameActions() {
 
     const vehicleIds = availableVehicles.map((v) => v.id)
 
-    // Mark as dispatched immediately, routes will be fetched async
+    // Immediately give dispatched vehicles a straight-line fallback route so they
+    // begin moving on the very next tick. The OSRM route will replace it once resolved.
+    const immediateVehicles = availableVehicles.map((veh) => {
+      const fallbackRoute = interpolateRoute(veh.position, mission.position)
+      return {
+        ...veh,
+        status: "dispatched" as VehicleStatus,
+        missionId: mission.id,
+        routeCoords: fallbackRoute,
+        routeIndex: 0,
+      }
+    })
+
     state = {
       ...state,
       missions: state.missions.map((m) =>
@@ -411,63 +526,56 @@ export function useGameActions() {
           : m,
       ),
       vehicles: state.vehicles.map((v) => {
-        if (vehicleIds.includes(v.id)) {
-          return { ...v, status: "dispatched" as VehicleStatus, missionId: mission.id }
-        }
-        return v
+        const updated = immediateVehicles.find((iv) => iv.id === v.id)
+        return updated || v
       }),
     }
     emit()
 
-    // Fetch OSRM routes asynchronously for each dispatched vehicle
+    // Fetch real OSRM road routes asynchronously; once resolved, replace the
+    // fallback with the actual road geometry.  We preserve the vehicle's
+    // current *progress fraction* so it doesn't teleport backward.
     for (const veh of availableVehicles) {
-      fetchRoute(veh.position, mission.position).then((routeCoords) => {
+      const routePromise = fetchRoute(veh.position, mission.position).then((routeCoords) => {
+        // Read current vehicle state to preserve progress
+        const currentVeh = state.vehicles.find((v) => v.id === veh.id)
+        if (!currentVeh || currentVeh.status !== "dispatched") {
+          pendingRoutes.delete(veh.id)
+          return routeCoords
+        }
+
+        // Calculate current progress fraction on the fallback route
+        const oldTotal = currentVeh.routeCoords.length
+        const progressFraction = oldTotal > 1 ? currentVeh.routeIndex / (oldTotal - 1) : 0
+
+        // Map that fraction onto the new (real) route
+        const newStartIndex = Math.floor(progressFraction * (routeCoords.length - 1))
+        const trimmedRoute = routeCoords.slice(newStartIndex)
+
+        if (trimmedRoute.length < 2) {
+          // Vehicle already basically arrived
+          applyRouteToVehicle(veh.id, routeCoords)
+          return routeCoords
+        }
+
         state = {
           ...state,
           vehicles: state.vehicles.map((v) =>
-            v.id === veh.id ? { ...v, routeCoords, routeIndex: 0 } : v,
+            v.id === veh.id
+              ? { ...v, routeCoords: trimmedRoute, routeIndex: 0 }
+              : v,
           ),
         }
+        pendingRoutes.delete(veh.id)
         emit()
+        return routeCoords
       })
+      pendingRoutes.set(veh.id, routePromise)
     }
   }, [])
 
   const generateMission = useCallback(() => {
-    if (!state.city || state.isPaused || state.gameOver) return
-
-    // Check current active missions to ensure we don't exceed 5
-    const activeMissions = state.missions.filter(
-      (m) => m.status === "pending" || m.status === "dispatched"
-    ).length
-    if (activeMissions >= 5) return
-
-    const types: MissionType[] = ["fire", "traffic-accident", "medical-emergency", "crime", "infrastructure"]
-    const type = types[Math.floor(Math.random() * types.length)]
-    const config = MISSION_CONFIGS[type]
-    const titleIndex = Math.floor(Math.random() * config.titles.length)
-
-    const position = smartMissionPosition(state.city, type, state.buildings)
-
-    const mission: Mission = {
-      id: genId("msn"),
-      type,
-      title: config.titles[titleIndex],
-      description: config.descriptions[titleIndex],
-      position,
-      status: "pending",
-      reward: config.baseReward + Math.floor(Math.random() * 500),
-      penalty: config.basePenalty + Math.floor(Math.random() * 200),
-      timeLimit: config.baseTimeLimit,
-      timeRemaining: config.baseTimeLimit,
-      requiredBuildings: config.requiredBuildings,
-      dispatchedVehicles: [],
-      workDuration: config.workDuration,
-      createdAt: state.gameTime,
-    }
-
-    state = { ...state, missions: [...state.missions, mission] }
-    emit()
+    internalGenerateMission()
   }, [])
 
   const tick = useCallback(() => {
@@ -491,7 +599,8 @@ export function useGameActions() {
     // --- Move vehicles (speed-scaled) ---
     let updatedVehicles = state.vehicles.map((v) => {
       if (v.status === "dispatched") {
-        if (v.routeCoords.length === 0) return v // still waiting for route
+        // If route is empty AND no pending fetch, vehicle has no route yet - skip
+        if (v.routeCoords.length === 0) return v
         const moved = moveVehicleAlongRoute(v, state.gameSpeed)
         if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const mission = state.missions.find((m) => m.id === v.missionId)
@@ -510,20 +619,20 @@ export function useGameActions() {
         if (remaining <= 0) {
           const building = state.buildings.find((b) => b.id === v.buildingId)
           if (building) {
-            fetchRoute(v.position, building.position).then((routeCoords) => {
-              state = {
-                ...state,
-                vehicles: state.vehicles.map((sv) =>
-                  sv.id === v.id ? { ...sv, routeCoords, routeIndex: 0 } : sv,
-                ),
-              }
-              emit()
+            // Give an immediate fallback route so vehicle starts returning instantly
+            const fallbackReturn = interpolateRoute(v.position, building.position)
+            // Also fetch real route in background
+            const returnPromise = fetchRoute(v.position, building.position).then((routeCoords) => {
+              applyRouteToVehicle(v.id, routeCoords)
+              return routeCoords
             })
+            pendingRoutes.set(v.id, returnPromise)
+
             return {
               ...v,
               status: "returning" as VehicleStatus,
               workTimeRemaining: 0,
-              routeCoords: [],
+              routeCoords: fallbackReturn,
               routeIndex: 0,
             }
           }
@@ -580,19 +689,18 @@ export function useGameActions() {
             if (failedVehIds.has(v.id) && v.status !== "idle") {
               const building = state.buildings.find((b) => b.id === v.buildingId)
               if (building && (v.status === "dispatched" || v.status === "working")) {
-                fetchRoute(v.position, building.position).then((routeCoords) => {
-                  state = {
-                    ...state,
-                    vehicles: state.vehicles.map((sv) =>
-                      sv.id === v.id ? { ...sv, routeCoords, routeIndex: 0 } : sv,
-                    ),
-                  }
-                  emit()
+                // Give an immediate fallback route for return
+                const fallbackReturn = interpolateRoute(v.position, building.position)
+                const returnPromise = fetchRoute(v.position, building.position).then((routeCoords) => {
+                  applyRouteToVehicle(v.id, routeCoords)
+                  return routeCoords
                 })
+                pendingRoutes.set(v.id, returnPromise)
+
                 return {
                   ...v,
                   status: "returning" as VehicleStatus,
-                  routeCoords: [],
+                  routeCoords: fallbackReturn,
                   routeIndex: 0,
                   workTimeRemaining: 0,
                 }
@@ -614,6 +722,10 @@ export function useGameActions() {
       })
 
     const isGameOver = newMoney < 0
+
+    if (isGameOver) {
+      stopMissionSpawnTimer()
+    }
 
     state = {
       ...state,
@@ -684,6 +796,13 @@ export function useGameActions() {
       }
       state = { ...state, isPaused: !state.isPaused }
       emit()
+
+      // Start or stop the mission auto-spawn timer
+      if (willUnpause) {
+        scheduleNextMissionSpawn()
+      } else {
+        stopMissionSpawnTimer()
+      }
     },
     setGameSpeed: (speed: 1 | 2 | 3) => {
       // Resync clocks so the speed change takes effect cleanly from this moment
@@ -692,6 +811,11 @@ export function useGameActions() {
       lastTimeUpdateRealTime = now
       state = { ...state, gameSpeed: speed }
       emit()
+
+      // Reschedule mission spawn timer with new speed
+      if (!state.isPaused && !state.gameOver) {
+        scheduleNextMissionSpawn()
+      }
     },
     setCity: (city: CityConfig) => {
       state = { ...state, city, population: city.population }
@@ -708,9 +832,14 @@ export function useGameActions() {
         isPaused: false 
       }
       emit()
+
+      // Start mission auto-spawn timer immediately on game start
+      scheduleNextMissionSpawn()
     },
     resetGame: () => {
       nextId = 1
+      stopMissionSpawnTimer()
+      pendingRoutes.clear()
       state = { ...INITIAL_STATE, buildings: [], missions: [], vehicles: [], city: null }
       emit()
     },
