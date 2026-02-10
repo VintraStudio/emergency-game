@@ -10,7 +10,7 @@ import type {
   BuildingType,
   CityConfig,
 } from "@/lib/game-types"
-import { BUILDING_CONFIGS } from "@/lib/game-types"
+import { BUILDING_CONFIGS, MISSION_CONFIGS } from "@/lib/game-types"
 import "leaflet/dist/leaflet.css"
 import "./city-map.css"
 
@@ -26,18 +26,29 @@ interface CityMapProps {
   onOpenBuilding: (building: Building) => void
 }
 
-// --- Ikon-generatorer ---
-function buildingIconHtml(color: string, level: number, size: number) {
+// --- SVG icon paths for each building type ---
+const BUILDING_SVG_ICONS: Record<string, string> = {
+  "fire-station": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`,
+  "police-station": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  "hospital": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M3 10h18"/><path d="M3 6h18v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/><path d="M10 14h4"/><path d="M12 12v4"/></svg>`,
+  "ambulance-station": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10h4"/><path d="M12 8v4"/><path d="M4 15h16"/><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></svg>`,
+  "medical-clinic": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6 6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6 6 6 0 0 0 6-6v-4"/><path d="M22 10 A2 2 0 0 0 20 8 A2 2 0 0 0 18 10"/></svg>`,
+  "road-authority": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="8" rx="1"/><path d="M17 14v7"/><path d="M7 14v7"/><path d="M17 3v3"/><path d="M7 3v3"/><path d="M10 14 2.3 6.3"/><path d="M14 6l7.7 7.7"/><path d="M8 6l8 8"/></svg>`,
+  "morgue": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>`,
+}
+
+function buildingIconHtml(color: string, level: number, size: number, buildingType: string) {
   const borderColor = color === "#ffffff" ? "#1a1c23" : color
-  return `<div class="map-icon-building" style="width:${size}px; height:${size}px; border-color:${borderColor};">
-    <div class="map-icon-dot" style="background:${borderColor};"></div>
+  const svgIcon = BUILDING_SVG_ICONS[buildingType] || BUILDING_SVG_ICONS["fire-station"]
+  return `<div class="map-icon-building" style="width:${size}px; height:${size}px; border-color:${borderColor}; color:${borderColor};">
+    ${svgIcon}
     ${level > 1 ? `<div class="map-icon-badge" style="background:${borderColor};">${level}</div>` : ""}
   </div>`
 }
 
-function missionIconHtml(color: string, isPending: boolean, urgencyRatio: number) {
+function missionIconHtml(missionColor: string, isPending: boolean, urgencyRatio: number) {
   const barColor = urgencyRatio > 0.5 ? "#22c55e" : urgencyRatio > 0.25 ? "#f59e0b" : "#ef4444"
-  const iconColor = isPending ? "#ef4444" : "#475569"
+  const iconColor = isPending ? missionColor : "#475569"
   return `<div class="map-icon-mission-container">
     <div class="map-icon-mission-circle ${isPending ? 'pulse' : ''}" style="background:${isPending ? iconColor : "rgba(255,255,255,0.9)"}; border-color:${iconColor};">
       <div class="map-icon-dot" style="background:${isPending ? "#fff" : iconColor};"></div>
@@ -98,7 +109,7 @@ export function CityMap({
         zoomSnap: 0.5,
       })
 
-      // Bruker "light_all" for et mye lysere kart-tema
+      // Neutral gray map theme: CartoDB Positron (light gray) desaturated via CSS
       L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
         subdomains: "abcd",
         className: "game-tile" 
@@ -158,40 +169,44 @@ export function CityMap({
     map.setView([city.center.lat, city.center.lng], city.zoom)
   }, [city.center.lat, city.center.lng, city.zoom])
 
-  // TEGN KJØRETØY OG RUTER MED FARGER
+  // Render vehicles and their routes, colored by parent building type
   useEffect(() => {
     const { vehicles: vLayer, routes: rLayer } = layersRef.current
     const L = leafletRef.current
     if (!vLayer || !rLayer || !L || !ready) return
   
-  vLayer.clearLayers()
-  rLayer.clearLayers()
+    vLayer.clearLayers()
+    rLayer.clearLayers()
 
-  vehicles.forEach(v => {
-    if (v.status === "idle") return
+    vehicles.forEach(v => {
+      if (v.status === "idle") return
     
-    // Finn bygningen som kjøretøyet tilhører
-    const parentBuilding = buildings.find(b => b.id === v.buildingId)
-    const bType = parentBuilding?.type || "fire-station"
-    const config = BUILDING_CONFIGS[bType]
-    const color = config?.color || "#3b82f6"
+      // Look up the building this vehicle belongs to for color mapping
+      const parentBuilding = buildings.find(b => b.id === v.buildingId)
+      const bType = parentBuilding?.type || "fire-station"
+      const config = BUILDING_CONFIGS[bType]
+      const color = config?.color || "#3b82f6"
 
-      // Tegn ruten bilen følger
+      // Draw remaining route from current position
       if (v.routeCoords && v.routeCoords.length > 0) {
-        const path = v.routeCoords.map(c => [c.lat, c.lng] as [number, number])
-        L.polyline(path, {
-          color: color,
-          weight: 4,
-          opacity: 0.7,
-          className: `vehicle-route-animated route-${bType}`
-        }).addTo(rLayer)
+        const startIdx = Math.floor(v.routeIndex)
+        const remainingPath = v.routeCoords.slice(startIdx).map(c => [c.lat, c.lng] as [number, number])
+        if (remainingPath.length > 1) {
+          L.polyline(remainingPath, {
+            color: color,
+            weight: 4,
+            opacity: 0.8,
+            className: `vehicle-route-animated route-${bType}`
+          }).addTo(rLayer)
+        }
       }
 
-      // Tegn selve bilen
+      // Draw the vehicle dot
+      const isWorking = v.status === "working"
       const vehicleIcon = L.divIcon({
-        className: `vehicle-marker`,
+        className: `vehicle-marker ${isWorking ? 'vehicle-working' : ''}`,
         iconSize: [14, 14],
-        html: `<div class="vehicle-dot vehicle-${bType}" style="background-color: ${color}; width: 12px; height: 12px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.3);"></div>`
+        html: `<div class="vehicle-dot vehicle-${bType}" style="background-color: ${color}; width: 12px; height: 12px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 ${isWorking ? '8' : '5'}px ${isWorking ? color : 'rgba(0,0,0,0.3)'};"></div>`
       })
 
       L.marker([v.position.lat, v.position.lng], { 
@@ -226,7 +241,7 @@ export function CityMap({
           className: "",
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
-          html: buildingIconHtml(buildingColor, b.level, size),
+          html: buildingIconHtml(buildingColor, b.level, size, b.type),
         }),
         zIndexOffset: 100,
       })
@@ -240,39 +255,7 @@ export function CityMap({
     })
   }, [buildings, ready])
 
-  // 3. Tegn Kjøretøy og Ruter
-  useEffect(() => {
-    const { vehicles: vLayer, routes: rLayer } = layersRef.current
-    const L = leafletRef.current
-    if (!vLayer || !rLayer || !L || !ready) return
-    
-    vLayer.clearLayers()
-    rLayer.clearLayers()
-
-    vehicles.forEach(v => {
-      if (v.status === "idle") return
-      const color = "#3b82f6"
-
-      if (v.routeCoords && v.routeCoords.length > v.routeIndex) {
-        const remainingPath = v.routeCoords.slice(v.routeIndex).map(c => [c.lat, c.lng] as [number, number])
-        if (remainingPath.length > 1) {
-          L.polyline(remainingPath, {
-            color: color, weight: 3, opacity: 0.5, className: "vehicle-route-animated"
-          }).addTo(rLayer)
-        }
-      }
-
-      const vehicleIcon = L.divIcon({
-        className: `vehicle-marker ${v.status === 'working' ? 'vehicle-working' : ''}`,
-        iconSize: [12, 12],
-        html: `<div style="background:${color}; width:100%; height:100%; border-radius:50%; border:2px solid #fff;"></div>`
-      })
-
-      L.marker([v.position.lat, v.position.lng], { icon: vehicleIcon, interactive: false, zIndexOffset: 500 }).addTo(vLayer)
-    })
-  }, [vehicles, ready])
-
-  // 4. Tegn Oppdrag
+  // 3. Tegn Oppdrag
   useEffect(() => {
     const { missions: layer } = layersRef.current
     const L = leafletRef.current
@@ -280,12 +263,14 @@ export function CityMap({
     layer.clearLayers()
 
     missions.filter(m => m.status === "pending" || m.status === "dispatched").forEach(m => {
+      const missionConfig = MISSION_CONFIGS[m.type]
+      const missionColor = missionConfig?.color || "#ef4444"
       const marker = L.marker([m.position.lat, m.position.lng], {
         icon: L.divIcon({
           className: "",
           iconSize: [28, 36],
           iconAnchor: [14, 36],
-          html: missionIconHtml("#ffffff", m.status === "pending", m.timeRemaining / m.timeLimit),
+          html: missionIconHtml(missionColor, m.status === "pending", m.timeRemaining / m.timeLimit),
         }),
         zIndexOffset: 200,
       })
