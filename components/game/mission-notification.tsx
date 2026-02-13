@@ -30,12 +30,15 @@ export function MissionNotification({ mission, onClose }: MissionNotificationPro
 
   return (
     <div className="mission-notification">
-      <div className="mission-notification-content">
+      <div
+        className="mission-notification-content"
+        style={{ "--notification-color": iconColor, borderColor: `${iconColor}30` } as React.CSSProperties}
+      >
         <div className="mission-notification-icon" style={{ color: iconColor }}>
           <AlertTriangle size={20} />
         </div>
         <div className="mission-notification-text">
-          <div className="mission-notification-title">New Mission!</div>
+          <div className="mission-notification-title">Incoming Emergency</div>
           <div className="mission-notification-name">{mission.title}</div>
         </div>
         <button className="mission-notification-close" onClick={onClose}>
