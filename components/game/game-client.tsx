@@ -188,6 +188,10 @@ export function GameClient() {
           key={mission.id}
           mission={mission}
           onClose={() => actions.clearNewMissions()}
+          onSelect={(m) => {
+            actions.markMissionsAsRead()
+            actions.selectMission(m)
+          }}
         />
       ))}
 

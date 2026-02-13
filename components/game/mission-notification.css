@@ -28,6 +28,15 @@
   transform: translateX(-4px);
 }
 
+.mission-notification-content[role="button"] {
+  cursor: pointer;
+}
+
+.mission-notification-content[role="button"]:hover {
+  background: rgba(14, 16, 24, 1);
+  border-color: var(--notification-color, #ef4444);
+}
+
 .mission-notification-icon {
   flex-shrink: 0;
   display: flex;

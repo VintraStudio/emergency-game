@@ -18,7 +18,7 @@ import { FaShieldAlt } from "react-icons/fa"
 import { FaHeartbeat } from "react-icons/fa"
 import { FaTruck } from "react-icons/fa"
 import { renderToString } from "react-dom/server"
-import { getCars, updateViewBounds, startTraffic, stopTraffic, tickTraffic } from "@/lib/traffic-manager"
+import { getCars, updateViewBounds, startTraffic, stopTraffic } from "@/lib/traffic-manager"
 import "leaflet/dist/leaflet.css"
 import "./city-map.css"
 
@@ -97,14 +97,15 @@ function buildingIconHtml(color: string, level: number, size: number, buildingTy
   </div>`
 }
 
-// Zoomed-out mission icon: blinking alert dot with glow
+// Zoomed-out mission icon: steady neon glow circle (no pulsing/scaling)
 function missionIconZoomedOut(missionColor: string, isPending: boolean, urgencyRatio: number) {
   const barColor = urgencyRatio > 0.5 ? "#22c55e" : urgencyRatio > 0.25 ? "#f59e0b" : "#ef4444"
   const iconColor = isPending ? missionColor : "#475569"
+  // Outer ring with inner neon glow core
   return `<div class="mission-alert-container">
-    <div class="mission-alert-ping" style="background:${iconColor};"></div>
-    <div class="mission-alert-dot ${isPending ? 'mission-blink' : ''}" style="background:${iconColor}; box-shadow: 0 0 12px ${iconColor}, 0 0 24px ${iconColor}40;">
-      <div class="mission-alert-inner" style="background:#fff;"></div>
+    <div class="mission-neon-ring" style="border-color:${iconColor}55;"></div>
+    <div class="mission-neon-dot" style="background:${iconColor}20; border: 2px solid ${iconColor};">
+      <div class="mission-neon-core" style="background:${iconColor}; box-shadow: 0 0 6px ${iconColor}, 0 0 14px ${iconColor}, 0 0 22px ${iconColor}80;"></div>
     </div>
     ${isPending ? `<div class="mission-urgency-bar"><div style="width:${Math.max(0, Math.min(100, urgencyRatio * 100))}%; background:${barColor};"></div></div>` : ""}
   </div>`
@@ -373,6 +374,22 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const vehicleColor = config?.color || "#3b82f6"
       const isWorking = v.status === "working"
 
+      // Draw route line for dispatched/returning vehicles
+      if ((v.status === "dispatched" || v.status === "returning") && v.routeCoords.length > 1) {
+        const remainingRoute = v.routeCoords.slice(Math.floor(v.routeIndex))
+        if (remainingRoute.length > 1) {
+          const latlngs = remainingRoute.map(c => [c.lat, c.lng] as [number, number])
+          L.polyline(latlngs, {
+            color: vehicleColor,
+            weight: 3,
+            opacity: 0.55,
+            dashArray: "8, 12",
+            className: "vehicle-route-animated",
+            pane: "routesPane",
+          }).addTo(rLayer)
+        }
+      }
+
       const vehicleIconHtml = isWorking
         ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
         : getVehicleIcon(bType, vehicleColor, false)
@@ -393,13 +410,18 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
   }, [prevVehiclesRef.current, ready]) // Only re-render when vehicles actually change
 
   // 2.5. NPC Traffic rendering via canvas overlay
+  // Canvas is placed directly on the map container (not inside a Leaflet pane)
+  // so it doesn't get transformed on pan/zoom. We use latLngToContainerPoint for positioning.
   const trafficCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const trafficZoomRef = useRef(zoomLevel)
+  trafficZoomRef.current = zoomLevel
   
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
 
-    // Create canvas element for traffic rendering
+    // Create canvas on top of the map container
+    const container = map.getContainer()
     const canvas = document.createElement("canvas")
     canvas.style.position = "absolute"
     canvas.style.top = "0"
@@ -408,15 +430,10 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     canvas.style.height = "100%"
     canvas.style.pointerEvents = "none"
     canvas.style.zIndex = "400"
-    
-    const pane = map.getPane("trafficPane")
-    if (pane) {
-      pane.appendChild(canvas)
-    }
+    container.appendChild(canvas)
     trafficCanvasRef.current = canvas
 
     function resizeCanvas() {
-      const container = map!.getContainer()
       canvas.width = container.clientWidth
       canvas.height = container.clientHeight
     }
@@ -430,7 +447,6 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const ctx = canvas.getContext("2d")
       if (!ctx || !map) return
 
-      const container = map.getContainer()
       if (canvas.width !== container.clientWidth || canvas.height !== container.clientHeight) {
         canvas.width = container.clientWidth
         canvas.height = container.clientHeight
@@ -438,26 +454,42 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
 
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
+      // Only render cars visually when zoomed in enough (>= 15)
+      // Traffic density still affects units at all zoom levels
+      const currentZoom = trafficZoomRef.current
+      if (currentZoom < 15) return
+
+      // Scale car size based on zoom level
+      const zoomScale = Math.max(0.6, (currentZoom - 14) * 0.8)
+
       const cars = getCars()
       for (const car of cars) {
         const point = map.latLngToContainerPoint([car.lat, car.lng])
         
+        // Skip cars outside the visible canvas
+        if (point.x < -20 || point.x > canvas.width + 20 || point.y < -20 || point.y > canvas.height + 20) continue
+
+        const radius = (car.width + 1) * zoomScale
+
         ctx.save()
-        ctx.translate(point.x, point.y)
-        ctx.rotate(-car.heading + Math.PI / 2)
         
-        // Draw car body
-        const w = car.width
-        const h = w * 1.8
-        ctx.fillStyle = car.color
+        // Draw shadow
         ctx.beginPath()
-        ctx.roundRect(-w / 2, -h / 2, w, h, 1)
+        ctx.arc(point.x + 1, point.y + 1, radius, 0, Math.PI * 2)
+        ctx.fillStyle = "rgba(0,0,0,0.25)"
         ctx.fill()
         
-        // Subtle shadow
-        ctx.shadowColor = "rgba(0,0,0,0.3)"
-        ctx.shadowBlur = 2
-        ctx.shadowOffsetY = 1
+        // Draw round car body
+        ctx.beginPath()
+        ctx.arc(point.x, point.y, radius, 0, Math.PI * 2)
+        ctx.fillStyle = car.color
+        ctx.fill()
+        
+        // Tiny highlight on top
+        ctx.beginPath()
+        ctx.arc(point.x - radius * 0.25, point.y - radius * 0.25, radius * 0.35, 0, Math.PI * 2)
+        ctx.fillStyle = "rgba(255,255,255,0.2)"
+        ctx.fill()
         
         ctx.restore()
       }
@@ -468,8 +500,8 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     return () => {
       clearInterval(frameId)
       map.off("resize", resizeCanvas)
-      if (pane && canvas.parentNode === pane) {
-        pane.removeChild(canvas)
+      if (canvas.parentNode === container) {
+        container.removeChild(canvas)
       }
       trafficCanvasRef.current = null
     }

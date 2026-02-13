@@ -194,7 +194,7 @@
   outline: none !important;
 }
 
-/* ===== ZOOMED OUT: Alert dot with ping ===== */
+/* ===== ZOOMED OUT: Steady neon glow ===== */
 .mission-alert-container {
   display: flex;
   flex-direction: column;
@@ -203,26 +203,21 @@
   position: relative;
 }
 
-.mission-alert-ping {
+.mission-neon-ring {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 24px;
-  height: 24px;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  opacity: 0;
-  animation: missionPing 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  border: 1.5px solid;
+  pointer-events: none;
 }
 
-@keyframes missionPing {
-  0% { transform: translateX(-50%) scale(1); opacity: 0.6; }
-  75%, 100% { transform: translateX(-50%) scale(2.5); opacity: 0; }
-}
-
-.mission-alert-dot {
-  width: 24px;
-  height: 24px;
+.mission-neon-dot {
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -231,19 +226,11 @@
   z-index: 1;
 }
 
-.mission-blink {
-  animation: missionBlink 1.2s ease-in-out infinite;
-}
-
-@keyframes missionBlink {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.15); }
-}
-
-.mission-alert-inner {
-  width: 6px;
-  height: 6px;
+.mission-neon-core {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
+  /* The neon glow is set via inline style box-shadow */
 }
 
 .mission-urgency-bar {

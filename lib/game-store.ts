@@ -163,52 +163,63 @@ function syncBuildingsWithVehicles(nextVehicles: Vehicle[]) {
 }
 
 // Vehicle movement: advance along routeCoords, scaled by game speed.
-// The number of points to move per tick adapts to route length so that every
-// route (short or long) completes in ~20-30 real seconds at 1x speed.
-// Tick interval is 200ms, so 100-150 ticks => points/tick = totalPoints / ~125.
-const TARGET_TICKS_TO_COMPLETE = 250
-
-// Speed factors for different road types (realistic speed adjustments)
-const ROAD_SPEED_FACTORS = {
-  motorway: 1.2,    // Faster on highways
-  primary: 1.0,     // Normal speed on main roads  
-  secondary: 0.8,   // Slower on smaller roads
-  residential: 0.6   // Much slower in residential areas
-}
+// TARGET_TICKS_TO_COMPLETE sets how many ticks (at 200ms each) a full route takes at 1x.
+// Higher value = slower, more relaxed movement.
+const TARGET_TICKS_TO_COMPLETE = 600
 
 function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
   if (v.routeCoords.length === 0 || v.routeIndex >= v.routeCoords.length - 1) {
     return v
   }
 
-  // Calculate base speed with road type consideration
-  const basePointsPerTick = Math.max(1, v.routeCoords.length / TARGET_TICKS_TO_COMPLETE)
+  // Base speed: route points per tick
+  const basePointsPerTick = Math.max(0.5, v.routeCoords.length / TARGET_TICKS_TO_COMPLETE)
   
-  // Apply speed factor based on road type (simplified - could be enhanced with real road data)
-  let speedFactor = ROAD_SPEED_FACTORS.primary // Default to primary road speed
+  // Detect road type by looking at the angle change between route segments.
+  // Straight segments = highway (fast), sharp turns = junctions (slow).
+  const idx = Math.floor(v.routeIndex)
+  let roadFactor = 1.0
+  if (idx >= 1 && idx < v.routeCoords.length - 1) {
+    const prev = v.routeCoords[idx - 1]
+    const curr = v.routeCoords[idx]
+    const next = v.routeCoords[Math.min(idx + 1, v.routeCoords.length - 1)]
+    // Angle between prev->curr and curr->next
+    const a1 = Math.atan2(curr.lng - prev.lng, curr.lat - prev.lat)
+    const a2 = Math.atan2(next.lng - curr.lng, next.lat - curr.lat)
+    let angleDiff = Math.abs(a2 - a1)
+    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff
+    // Sharp turn (> 45deg) = junction/corner -> slow down
+    if (angleDiff > Math.PI / 4) {
+      roadFactor = 0.35 // Very slow at sharp corners
+    } else if (angleDiff > Math.PI / 8) {
+      roadFactor = 0.6  // Moderate turn
+    } else {
+      // Check segment length to detect highway vs residential
+      const segDist = Math.sqrt(
+        (next.lat - curr.lat) ** 2 + (next.lng - curr.lng) ** 2
+      )
+      // Long straight segments = highway
+      roadFactor = segDist > 0.0005 ? 1.2 : 0.85
+    }
+  }
   
-  // Add some randomness for realistic driving behavior
-  const randomVariation = 0.9 + Math.random() * 0.2 // 90-110% speed variation
+  // Small random variation for realistic driving (97-103%)
+  const randomVariation = 0.97 + Math.random() * 0.06
   
-  // Calculate distance to destination for braking effect
+  // Braking near destination
   const remainingDistance = v.routeCoords.length - 1 - v.routeIndex
-  const brakingFactor = remainingDistance < 10 ? 0.3 + (remainingDistance / 10) * 0.7 : 1.0
+  const brakingFactor = remainingDistance < 15 ? 0.25 + (remainingDistance / 15) * 0.75 : 1.0
 
   // Traffic density slowdown: up to 40% slower in heavy traffic areas
   const trafficDensity = getTrafficDensity(v.position.lat, v.position.lng)
   const trafficFactor = 1.0 - (trafficDensity * 0.4) // 60-100% speed
   
-  const pointsToMove = basePointsPerTick * gameSpeed * speedFactor * randomVariation * brakingFactor * trafficFactor
-  const newIndex = Math.min(v.routeIndex + pointsToMove, v.routeCoords.length - 1)
+  const pointsToMove = basePointsPerTick * gameSpeed * roadFactor * randomVariation * brakingFactor * trafficFactor
   
-  // Smooth acceleration and deceleration
-  const speedDiff = pointsToMove - (v.routeIndex - Math.floor(v.routeIndex))
-  const smoothedMovement = speedDiff > 0 ? 
-    Math.min(pointsToMove, basePointsPerTick * 1.5) : // Max acceleration
-    Math.max(pointsToMove, basePointsPerTick * 0.3)    // Max deceleration
-  
-  const finalNewIndex = v.routeIndex + smoothedMovement
-  const clampedIndex = Math.min(finalNewIndex, v.routeCoords.length - 1)
+  // Clamp movement for smooth, relaxed feel
+  const maxMove = basePointsPerTick * 1.3 * gameSpeed
+  const clampedMove = Math.min(pointsToMove, maxMove)
+  const clampedIndex = Math.min(v.routeIndex + clampedMove, v.routeCoords.length - 1)
   
   // Floor the index to access valid array positions; keep fractional for smooth accumulation
   const flooredIdx = Math.floor(clampedIndex)
@@ -226,7 +237,7 @@ function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
   return {
     ...v,
     position: pos,
-    routeIndex: newIndex,
+    routeIndex: clampedIndex,
   }
 }
 

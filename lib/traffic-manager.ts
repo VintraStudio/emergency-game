@@ -217,7 +217,7 @@ export function tickTraffic() {
       
       // Random speed change
       car.speed = 0.00002 + Math.random() * 0.00003
-      return
+      continue
     }
 
     // Check intersection stop
