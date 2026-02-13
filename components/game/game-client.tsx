@@ -11,7 +11,8 @@ import { GameOver } from "./game-over"
 import { StartScreen } from "./start-screen"
 import { MissionNotification } from "./mission-notification"
 import { GameLoop } from "./GameLoop"
-import { Building2, Zap } from "lucide-react"
+import { TutorialOverlay } from "./tutorial-overlay"
+import { Building2, Zap, HelpCircle } from "lucide-react"
 import type { CityConfig } from "@/lib/game-types"
 import "./game-client.css"
 
@@ -19,6 +20,7 @@ export function GameClient() {
   const state = useGameState()
   const actions = useGameActions()
   const [started, setStarted] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(false)
 
   // Sentinel mission object for missions view
   const sentinelMission = {
@@ -60,7 +62,20 @@ export function GameClient() {
     actions.setCity(city)
     actions.startGame()
     setStarted(true)
-  }, [actions])
+    setShowTutorial(true)
+    // Pause game during tutorial
+    if (!state.isPaused) {
+      actions.togglePause()
+    }
+  }, [actions, state.isPaused])
+
+  const handleTutorialComplete = useCallback(() => {
+    setShowTutorial(false)
+    // Unpause game when tutorial ends
+    if (state.isPaused) {
+      actions.togglePause()
+    }
+  }, [actions, state.isPaused])
 
   const handleReset = useCallback(() => {
     actions.resetGame()
@@ -173,8 +188,20 @@ export function GameClient() {
           key={mission.id}
           mission={mission}
           onClose={() => actions.clearNewMissions()}
+          onSelect={(m) => {
+            actions.markMissionsAsRead()
+            actions.selectMission(m)
+          }}
         />
       ))}
+
+      {/* Tutorial Overlay */}
+      {showTutorial && state.city && (
+        <TutorialOverlay
+          cityName={state.city.name}
+          onComplete={handleTutorialComplete}
+        />
+      )}
 
       {/* Game Over Overlay */}
       {state.gameOver && <GameOver state={state} onReset={handleReset} />}

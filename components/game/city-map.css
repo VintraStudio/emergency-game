@@ -14,12 +14,12 @@
   height: 100%;
 }
 
-/* Tile styling: desaturate and darken Positron tiles into a neutral gray */
+/* Tile styling: dark mode map with subtle color */
 .game-tile {
   margin: -0.5px !important;
   padding: 0.5px !important;
   image-rendering: -webkit-optimize-contrast;
-  filter: brightness(0.72) contrast(1.1) saturate(0.15);
+  filter: brightness(0.65) contrast(1.15) saturate(0.12) hue-rotate(-10deg);
 }
 
 /* --- Ghost Marker for plassering --- */
@@ -89,6 +89,48 @@
   50% { transform: scale(1.3); }
 }
 
+/* Parked vehicle at mission site */
+.vehicle-parked {
+  animation: none !important;
+}
+
+.vehicle-parked-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vehicle-parked-shadow {
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 4px;
+  border-radius: 50%;
+  opacity: 0.3;
+  filter: blur(2px);
+}
+
+.vehicle-parked-wrapper::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+  animation: parkingBlink 2s ease-in-out infinite;
+}
+
+@keyframes parkingBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 /* --- Building Icon System - Complete Rebuild --- */
 .building-icon-container {
   position: relative;
@@ -146,34 +188,49 @@
   z-index: 3;
 }
 
-.map-icon-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
 .leaflet-marker-icon {
   background: none !important;
   border: none !important;
   outline: none !important;
 }
 
-.map-icon-mission-container {
+/* ===== ZOOMED OUT: Steady neon glow ===== */
+.mission-alert-container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+  position: relative;
 }
 
-.map-icon-mission-circle {
-  width: 24px;
-  height: 24px;
-  border: 2px solid #fff;
+.mission-neon-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid;
+  pointer-events: none;
+}
+
+.mission-neon-dot {
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  position: relative;
+  z-index: 1;
+}
+
+.mission-neon-core {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* The neon glow is set via inline style box-shadow */
 }
 
 .mission-urgency-bar {
@@ -190,14 +247,360 @@
   transition: width 0.3s ease;
 }
 
-.pulse {
-  animation: pulseAnim 2s infinite;
+/* ===== ZOOMED IN: Animated scene icons ===== */
+.mission-scene-container {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 2px solid;
+  background: rgba(14, 16, 24, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  overflow: hidden;
 }
 
-@keyframes pulseAnim {
-  0% { transform: scale(1); box-shadow: 0 0 0 0px rgba(255, 255, 255, 0.3); }
-  70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
-  100% { transform: scale(1); }
+.mission-scene-container::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: rgba(14, 16, 24, 0.92);
+  border-right: 2px solid inherit;
+  border-bottom: 2px solid inherit;
+}
+
+.mission-scene {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scene-bar {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  width: calc(100% - 8px);
+}
+
+/* --- Fire animation --- */
+.mission-fire {
+  background: radial-gradient(ellipse at bottom, #1a0500 0%, transparent 70%);
+}
+
+.fire-flame {
+  position: absolute;
+  bottom: 6px;
+  border-radius: 50% 50% 20% 20%;
+  animation: fireFlicker 0.8s ease-in-out infinite alternate;
+}
+
+.fire-flame.f1 {
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 20px;
+  background: linear-gradient(to top, #e86430, #ff9100, #ffdd00);
+  animation-duration: 0.6s;
+}
+
+.fire-flame.f2 {
+  left: 30%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 14px;
+  background: linear-gradient(to top, #e86430, #ff6600);
+  animation-duration: 0.9s;
+  animation-delay: 0.15s;
+}
+
+.fire-flame.f3 {
+  left: 70%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 14px;
+  background: linear-gradient(to top, #cc3300, #ff6600);
+  animation-duration: 0.7s;
+  animation-delay: 0.3s;
+}
+
+.fire-ember {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ffdd00;
+  animation: emberRise 1.5s ease-out infinite;
+}
+
+.fire-ember.e1 { left: 40%; animation-delay: 0s; }
+.fire-ember.e2 { left: 60%; animation-delay: 0.7s; }
+
+@keyframes fireFlicker {
+  0% { transform: translateX(-50%) scaleY(1) scaleX(1); opacity: 1; }
+  100% { transform: translateX(-50%) scaleY(1.2) scaleX(0.85); opacity: 0.85; }
+}
+
+@keyframes emberRise {
+  0% { bottom: 12px; opacity: 1; transform: translateX(0); }
+  100% { bottom: 38px; opacity: 0; transform: translateX(8px); }
+}
+
+/* --- Traffic accident animation --- */
+.mission-accident {
+  overflow: hidden;
+}
+
+.accident-car {
+  position: absolute;
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+  top: 50%;
+}
+
+.accident-car.c1 {
+  background: #889;
+  left: 6px;
+  transform: translateY(-50%) rotate(15deg);
+}
+
+.accident-car.c2 {
+  background: #e04444;
+  right: 6px;
+  transform: translateY(-50%) rotate(-12deg);
+}
+
+.accident-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background: #ffdd00;
+  border-radius: 50%;
+  animation: accidentFlash 0.6s ease-in-out infinite;
+}
+
+.hazard-light {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffaa00;
+  animation: hazardBlink 0.8s ease-in-out infinite;
+}
+
+.hazard-light.h1 { top: 8px; left: 8px; }
+.hazard-light.h2 { bottom: 8px; right: 8px; animation-delay: 0.4s; }
+
+@keyframes accidentFlash {
+  0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+}
+
+@keyframes hazardBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.1; }
+}
+
+/* --- Medical emergency animation --- */
+.mission-medical {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.medical-cross {
+  width: 14px;
+  height: 14px;
+  position: relative;
+}
+
+.medical-cross::before,
+.medical-cross::after {
+  content: "";
+  position: absolute;
+  background: #e04444;
+  border-radius: 1px;
+}
+
+.medical-cross::before {
+  top: 4px;
+  left: 0;
+  width: 14px;
+  height: 6px;
+}
+
+.medical-cross::after {
+  top: 0;
+  left: 4px;
+  width: 6px;
+  height: 14px;
+}
+
+.heartbeat-line {
+  width: 30px;
+  height: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.heartbeat-pulse {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 60px;
+  height: 2px;
+  background:
+    linear-gradient(90deg,
+      #e04444 0%, #e04444 20%,
+      transparent 20%, transparent 25%,
+      #e04444 25%, #e04444 28%,
+      transparent 28%, transparent 32%,
+      #e04444 32%, #e04444 42%,
+      transparent 42%, transparent 45%,
+      #e04444 45%, #e04444 48%,
+      transparent 48%, transparent 50%,
+      #e04444 50%, #e04444 100%
+    );
+  animation: heartbeatScroll 1.5s linear infinite;
+}
+
+@keyframes heartbeatScroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-30px); }
+}
+
+/* --- Crime animation --- */
+.mission-crime {
+  overflow: hidden;
+}
+
+.police-light {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  opacity: 0;
+}
+
+.police-light.red {
+  left: 0;
+  background: radial-gradient(circle at center, rgba(255,0,0,0.6), transparent 70%);
+  animation: policeFlashRed 1.2s ease-in-out infinite;
+}
+
+.police-light.blue {
+  right: 0;
+  background: radial-gradient(circle at center, rgba(0,100,255,0.6), transparent 70%);
+  animation: policeFlashBlue 1.2s ease-in-out infinite;
+}
+
+.crime-shield {
+  width: 14px;
+  height: 16px;
+  border: 2px solid #4488ee;
+  border-radius: 2px 2px 50% 50%;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes policeFlashRed {
+  0%, 100% { opacity: 0; }
+  25% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes policeFlashBlue {
+  0%, 50% { opacity: 0; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* --- Infrastructure animation --- */
+.mission-infra {
+  overflow: hidden;
+}
+
+.infra-warning {
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 18px solid #ddaa22;
+  position: relative;
+  z-index: 1;
+}
+
+.infra-warning::after {
+  content: "!";
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 900;
+  color: #1a1c23;
+  line-height: 1;
+}
+
+.infra-gear {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #ddaa22;
+  border-radius: 50%;
+  animation: gearSpin 3s linear infinite;
+}
+
+.infra-gear::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ddaa22;
+}
+
+.infra-stripe {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: repeating-linear-gradient(
+    -45deg,
+    #ddaa22,
+    #ddaa22 3px,
+    #1a1c23 3px,
+    #1a1c23 6px
+  );
+  animation: stripeScroll 2s linear infinite;
+}
+
+@keyframes gearSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes stripeScroll {
+  0% { background-position: 0 0; }
+  100% { background-position: 12px 0; }
 }
 
 .game-tooltip {

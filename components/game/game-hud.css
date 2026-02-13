@@ -5,10 +5,9 @@
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
-  background: rgba(14, 16, 24, 0.70);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  gap: 0.75rem;
 }
 
 .hud-section {
@@ -22,6 +21,16 @@
   align-items: center;
   gap: 0.5rem;
   font-family: 'Courier New', monospace;
+  padding: 0.375rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.clock {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--muted-foreground));
 }
 
 .time-display {
@@ -31,14 +40,16 @@
 }
 
 .time {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   color: hsl(var(--foreground));
+  letter-spacing: 0.03em;
 }
 
 .date {
-  font-size: 0.75rem;
+  font-size: 0.65rem;
   color: hsl(var(--muted-foreground));
+  letter-spacing: 0.02em;
 }
 
 .hud-speed {
@@ -54,27 +65,29 @@
 }
 
 .speed-button {
-  background: hsl(var(--muted));
-  border: 1px solid hsl(var(--border));
-  color: hsl(var(--foreground));
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
-  font-weight: 600;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
   cursor: pointer;
-  min-width: 2rem;
-  transition: all 0.2s;
+  min-width: 1.8rem;
+  transition: all 0.15s ease;
+  font-family: monospace;
 }
 
 .speed-button:hover {
-  background: hsl(var(--muted)/0.8);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .speed-button.active {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.25);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.4);
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.15);
 }
 
 .speed-button:focus {
@@ -120,15 +133,29 @@
   align-items: center;
   gap: 0.375rem;
   padding: 0.375rem 0.75rem;
-  background: hsl(var(--secondary) / 0.2);
-  border-radius: 0.375rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
   font-size: 0.75rem;
   font-weight: 500;
+  transition: background 0.2s ease;
+}
+
+.hud-resource.danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.hud-resource.primary {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .hud-resource-count {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 0.8rem;
   color: hsl(var(--foreground));
+  font-variant-numeric: tabular-nums;
 }
 
 .hud-controls {
@@ -137,38 +164,37 @@
 }
 
 .hud-button {
-  padding: 0.5rem 1rem;
-  background: hsl(var(--secondary));
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.375rem;
+  padding: 0.45rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
   color: hsl(var(--foreground));
-  font-size: 0.875rem;
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .hud-button:hover {
-  background: hsl(var(--secondary) / 0.8);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .hud-button.primary {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.2);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.3);
 }
 
 .hud-button.primary:hover {
-  background: hsl(var(--primary) / 0.8);
+  background: hsl(var(--primary) / 0.3);
 }
 
 .hud-button.danger {
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
-  border-color: hsl(var(--destructive));
+  background: hsl(var(--destructive) / 0.15);
+  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.3);
 }
 
 .hud-button.danger:hover {
-  background: hsl(var(--destructive) / 0.8);
+  background: hsl(var(--destructive) / 0.25);
 }
