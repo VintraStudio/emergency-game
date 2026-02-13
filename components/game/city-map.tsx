@@ -454,44 +454,35 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
 
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // Only render cars visually when zoomed in enough (>= 15)
+      // Only render cars visually when zoomed in (>= 15)
       // Traffic density still affects units at all zoom levels
       const currentZoom = trafficZoomRef.current
       if (currentZoom < 15) return
 
-      // Scale car size based on zoom level
-      const zoomScale = Math.max(0.6, (currentZoom - 14) * 0.8)
+      // Tiny radius that scales slightly with zoom
+      const baseRadius = 2
+      const zoomBoost = Math.max(0, (currentZoom - 15) * 0.4)
 
       const cars = getCars()
       for (const car of cars) {
         const point = map.latLngToContainerPoint([car.lat, car.lng])
         
-        // Skip cars outside the visible canvas
-        if (point.x < -20 || point.x > canvas.width + 20 || point.y < -20 || point.y > canvas.height + 20) continue
+        // Skip cars outside visible area
+        if (point.x < -10 || point.x > canvas.width + 10 || point.y < -10 || point.y > canvas.height + 10) continue
 
-        const radius = (car.width + 1) * zoomScale
+        const r = baseRadius + zoomBoost
 
-        ctx.save()
-        
-        // Draw shadow
+        // Tiny shadow
         ctx.beginPath()
-        ctx.arc(point.x + 1, point.y + 1, radius, 0, Math.PI * 2)
-        ctx.fillStyle = "rgba(0,0,0,0.25)"
+        ctx.arc(point.x + 0.5, point.y + 0.5, r, 0, Math.PI * 2)
+        ctx.fillStyle = "rgba(0,0,0,0.3)"
         ctx.fill()
         
-        // Draw round car body
+        // Car dot
         ctx.beginPath()
-        ctx.arc(point.x, point.y, radius, 0, Math.PI * 2)
+        ctx.arc(point.x, point.y, r, 0, Math.PI * 2)
         ctx.fillStyle = car.color
         ctx.fill()
-        
-        // Tiny highlight on top
-        ctx.beginPath()
-        ctx.arc(point.x - radius * 0.25, point.y - radius * 0.25, radius * 0.35, 0, Math.PI * 2)
-        ctx.fillStyle = "rgba(255,255,255,0.2)"
-        ctx.fill()
-        
-        ctx.restore()
       }
     }
 
