@@ -1,0 +1,203 @@
+/* Tutorial Overlay */
+
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.tutorial-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: auto;
+  animation: tutorialFadeIn 0.4s ease-out;
+}
+
+@keyframes tutorialFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Spotlight cutout via box-shadow trick */
+.tutorial-spotlight {
+  position: absolute;
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7);
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  z-index: 9001;
+}
+
+.tutorial-spotlight::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  animation: spotlightPulse 2s ease-in-out infinite;
+}
+
+@keyframes spotlightPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.02); }
+}
+
+/* Tutorial card */
+.tutorial-card {
+  position: absolute;
+  z-index: 9002;
+  pointer-events: auto;
+  
+  width: 340px;
+  padding: 20px 24px;
+  
+  background: rgba(14, 16, 24, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  
+  animation: cardSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes cardSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tutorial-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tutorial-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  transition: all 0.3s ease;
+}
+
+.tutorial-step-dot.active {
+  background: #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+  width: 20px;
+  border-radius: 4px;
+}
+
+.tutorial-step-dot.done {
+  background: #22c55e;
+}
+
+.tutorial-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.15);
+  margin-bottom: 12px;
+}
+
+.tutorial-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+.tutorial-description {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.tutorial-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tutorial-skip {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tutorial-skip:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tutorial-next {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tutorial-next:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+}
+
+/* Welcome step (no spotlight, centered card) */
+.tutorial-card.centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  text-align: center;
+}
+
+.tutorial-card.centered .tutorial-icon {
+  margin: 0 auto 12px;
+  width: 56px;
+  height: 56px;
+}
+
+.tutorial-card.centered .tutorial-actions {
+  justify-content: center;
+}
+
+.tutorial-welcome-siren {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(239, 68, 68, 0.2));
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  animation: sirenGlow 2s ease-in-out infinite;
+}
+
+@keyframes sirenGlow {
+  0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); border-color: rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.3); border-color: rgba(239, 68, 68, 0.3); }
+}

@@ -13,6 +13,7 @@ import type {
   CityConfig,
 } from "./game-types"
 import { BUILDING_CONFIGS, MISSION_CONFIGS } from "./game-types"
+import { getTrafficDensity, tickTraffic } from "./traffic-manager"
 
 let nextId = 1
 function genId(prefix: string) {
@@ -192,8 +193,12 @@ function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
   // Calculate distance to destination for braking effect
   const remainingDistance = v.routeCoords.length - 1 - v.routeIndex
   const brakingFactor = remainingDistance < 10 ? 0.3 + (remainingDistance / 10) * 0.7 : 1.0
+
+  // Traffic density slowdown: up to 40% slower in heavy traffic areas
+  const trafficDensity = getTrafficDensity(v.position.lat, v.position.lng)
+  const trafficFactor = 1.0 - (trafficDensity * 0.4) // 60-100% speed
   
-  const pointsToMove = basePointsPerTick * gameSpeed * speedFactor * randomVariation * brakingFactor
+  const pointsToMove = basePointsPerTick * gameSpeed * speedFactor * randomVariation * brakingFactor * trafficFactor
   const newIndex = Math.min(v.routeIndex + pointsToMove, v.routeCoords.length - 1)
   
   // Smooth acceleration and deceleration
@@ -641,11 +646,9 @@ export function useGameActions() {
 
   const tick = useCallback(() => {
     if (state.isPaused || state.gameOver) return
-    // Only log every 10th tick to reduce spam
-    if (Math.random() < 0.1) {
-      console.log("⏰ TICK START - Buildings:", state.buildings.length, "Vehicles:", state.vehicles.length, "Managing:", state.managingBuilding?.name || "none")
-      console.log("TICK", Date.now(), state.vehicles.map(v => ({ id: v.id, s: v.status, idx: v.routeIndex })))
-    }
+    
+    // Tick NPC traffic system
+    tickTraffic()
 
     const now = Date.now()
     const realDeltaMs = now - lastTickRealTime
@@ -663,6 +666,7 @@ export function useGameActions() {
     let failed = state.missionsFailed
 
     // --- Move vehicles (speed-scaled) ---
+    let anyVehicleMoved = false
     let updatedVehicles = state.vehicles.map((v) => {
       if (v.status === "preparing") {
         // Handle preparation countdown - do NOT move until OSRM route is ready
@@ -676,11 +680,23 @@ export function useGameActions() {
       if (v.status === "dispatched") {
         // Only move if we have a valid OSRM route
         if (v.routeCoords.length === 0) return v
+        anyVehicleMoved = true
         const moved = moveVehicleAlongRoute(v, state.gameSpeed)
         if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const mission = state.missions.find((m) => m.id === v.missionId)
+          // Park offset: fan out vehicles around mission site (~20m apart)
+          const dispatchedToSameMission = state.vehicles.filter(
+            (vv) => vv.missionId === v.missionId && vv.id !== v.id && vv.status === "working"
+          ).length
+          const angle = (dispatchedToSameMission * Math.PI * 0.6) + (Math.PI * 0.25)
+          const parkDist = 0.00025 // ~25m offset
+          const parkedPos = {
+            lat: moved.position.lat + Math.cos(angle) * parkDist,
+            lng: moved.position.lng + Math.sin(angle) * parkDist,
+          }
           return {
             ...moved,
+            position: parkedPos,
             status: "working" as VehicleStatus,
             workTimeRemaining: mission?.workDuration ?? 8,
           }
@@ -718,6 +734,7 @@ export function useGameActions() {
 
       if (v.status === "returning") {
         if (v.routeCoords.length === 0) return v
+        anyVehicleMoved = true
         const moved = moveVehicleAlongRoute(v, state.gameSpeed)
         if (moved.routeIndex >= moved.routeCoords.length - 1) {
           const building = state.buildings.find((b) => b.id === v.buildingId)
@@ -802,9 +819,14 @@ export function useGameActions() {
       stopMissionSpawnTimer()
     }
 
-    // Sync buildings only when vehicles actually changed (avoid new reference every tick)
-    const vehiclesChanged = updatedVehicles !== state.vehicles
-    const nextBuildings = vehiclesChanged ? syncBuildingsWithVehicles(updatedVehicles) : state.buildings
+    // Sync buildings only when vehicle status/assignment changed (not just position)
+    // Compare vehicle statuses to detect structural changes vs mere movement
+    const vehicleStatusChanged = updatedVehicles.some((v, i) => {
+      const old = state.vehicles[i]
+      if (!old) return true
+      return v.status !== old.status || v.missionId !== old.missionId || v.buildingId !== old.buildingId
+    }) || updatedVehicles.length !== state.vehicles.length
+    const nextBuildings = vehicleStatusChanged ? syncBuildingsWithVehicles(updatedVehicles) : state.buildings
 
     state = {
       ...state,

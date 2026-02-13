@@ -18,6 +18,7 @@ import { FaShieldAlt } from "react-icons/fa"
 import { FaHeartbeat } from "react-icons/fa"
 import { FaTruck } from "react-icons/fa"
 import { renderToString } from "react-dom/server"
+import { getCars, updateViewBounds, startTraffic, stopTraffic, tickTraffic } from "@/lib/traffic-manager"
 import "leaflet/dist/leaflet.css"
 import "./city-map.css"
 
@@ -96,14 +97,72 @@ function buildingIconHtml(color: string, level: number, size: number, buildingTy
   </div>`
 }
 
-function missionIconHtml(missionColor: string, isPending: boolean, urgencyRatio: number) {
+// Zoomed-out mission icon: blinking alert dot with glow
+function missionIconZoomedOut(missionColor: string, isPending: boolean, urgencyRatio: number) {
   const barColor = urgencyRatio > 0.5 ? "#22c55e" : urgencyRatio > 0.25 ? "#f59e0b" : "#ef4444"
   const iconColor = isPending ? missionColor : "#475569"
-  return `<div class="map-icon-mission-container">
-    <div class="map-icon-mission-circle ${isPending ? 'pulse' : ''}" style="background:${isPending ? iconColor : "rgba(255,255,255,0.9)"}; border-color:${iconColor};">
-      <div class="map-icon-dot" style="background:${isPending ? "#fff" : iconColor};"></div>
+  return `<div class="mission-alert-container">
+    <div class="mission-alert-ping" style="background:${iconColor};"></div>
+    <div class="mission-alert-dot ${isPending ? 'mission-blink' : ''}" style="background:${iconColor}; box-shadow: 0 0 12px ${iconColor}, 0 0 24px ${iconColor}40;">
+      <div class="mission-alert-inner" style="background:#fff;"></div>
     </div>
     ${isPending ? `<div class="mission-urgency-bar"><div style="width:${Math.max(0, Math.min(100, urgencyRatio * 100))}%; background:${barColor};"></div></div>` : ""}
+  </div>`
+}
+
+// Zoomed-in mission icon: animated scene based on type
+function missionIconZoomedIn(missionType: string, missionColor: string, isPending: boolean, urgencyRatio: number) {
+  const barColor = urgencyRatio > 0.5 ? "#22c55e" : urgencyRatio > 0.25 ? "#f59e0b" : "#ef4444"
+  let sceneHtml = ""
+
+  switch (missionType) {
+    case "fire":
+      sceneHtml = `<div class="mission-scene mission-fire">
+        <div class="fire-flame f1"></div>
+        <div class="fire-flame f2"></div>
+        <div class="fire-flame f3"></div>
+        <div class="fire-ember e1"></div>
+        <div class="fire-ember e2"></div>
+      </div>`
+      break
+    case "traffic-accident":
+      sceneHtml = `<div class="mission-scene mission-accident">
+        <div class="accident-car c1"></div>
+        <div class="accident-car c2"></div>
+        <div class="accident-flash"></div>
+        <div class="hazard-light h1"></div>
+        <div class="hazard-light h2"></div>
+      </div>`
+      break
+    case "medical-emergency":
+      sceneHtml = `<div class="mission-scene mission-medical">
+        <div class="medical-cross"></div>
+        <div class="heartbeat-line">
+          <div class="heartbeat-pulse"></div>
+        </div>
+      </div>`
+      break
+    case "crime":
+      sceneHtml = `<div class="mission-scene mission-crime">
+        <div class="police-light red"></div>
+        <div class="police-light blue"></div>
+        <div class="crime-shield"></div>
+      </div>`
+      break
+    case "infrastructure":
+      sceneHtml = `<div class="mission-scene mission-infra">
+        <div class="infra-warning"></div>
+        <div class="infra-gear"></div>
+        <div class="infra-stripe"></div>
+      </div>`
+      break
+    default:
+      sceneHtml = `<div class="mission-scene"><div class="mission-alert-dot" style="background:${missionColor};"></div></div>`
+  }
+
+  return `<div class="mission-scene-container" style="border-color:${missionColor};">
+    ${sceneHtml}
+    ${isPending ? `<div class="mission-urgency-bar scene-bar"><div style="width:${Math.max(0, Math.min(100, urgencyRatio * 100))}%; background:${barColor};"></div></div>` : ""}
   </div>`
 }
 
@@ -134,6 +193,7 @@ export function CityMap({
 
   const ghostMarkerRef = useRef<LType.Marker | null>(null)
   const [ready, setReady] = useState(false)
+  const [zoomLevel, setZoomLevel] = useState(city?.zoom ?? 14)
 
   // Callbacks ref for å unngå stale closures
   const cb = useRef({ onPlaceBuilding, onSelectBuilding, onSelectMission, onOpenBuilding })
@@ -167,6 +227,10 @@ export function CityMap({
 map.createPane("routesPane")
 map.getPane("routesPane")!.style.zIndex = "300"
 map.getPane("routesPane")!.style.pointerEvents = "none"
+
+map.createPane("trafficPane")
+map.getPane("trafficPane")!.style.zIndex = "400"
+map.getPane("trafficPane")!.style.pointerEvents = "none"
 
 map.createPane("vehiclesPane")
 map.getPane("vehiclesPane")!.style.zIndex = "500"
@@ -218,6 +282,40 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
         }
       })
 
+      // Track zoom level for zoom-based rendering
+      map.on("zoomend", () => {
+        setZoomLevel(map.getZoom())
+        // Update traffic viewport bounds
+        const b = map.getBounds()
+        updateViewBounds({
+          north: b.getNorth(),
+          south: b.getSouth(),
+          east: b.getEast(),
+          west: b.getWest(),
+        })
+      })
+
+      // Update traffic bounds on map move
+      map.on("moveend", () => {
+        const b = map.getBounds()
+        updateViewBounds({
+          north: b.getNorth(),
+          south: b.getSouth(),
+          east: b.getEast(),
+          west: b.getWest(),
+        })
+      })
+
+      // Initialize traffic system with current viewport
+      const initialBounds = map.getBounds()
+      updateViewBounds({
+        north: initialBounds.getNorth(),
+        south: initialBounds.getSouth(),
+        east: initialBounds.getEast(),
+        west: initialBounds.getWest(),
+      })
+      startTraffic()
+
       mapRef.current = map
       setReady(true)
     }
@@ -225,6 +323,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     init()
     return () => {
       isMounted = false
+      stopTraffic()
       if (mapRef.current) {
         mapRef.current.remove()
         mapRef.current = null
@@ -236,11 +335,9 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
   const cityRef = useRef(city)
   const prevCityRef = useRef<string>("")
   
-  // Only update city ref when city actually changes
   if (JSON.stringify(city) !== prevCityRef.current) {
     cityRef.current = city
     prevCityRef.current = JSON.stringify(city)
-    console.log("🗺️ CITY ACTUALLY CHANGED - Re-centering map")
   }
 
   useEffect(() => {
@@ -253,11 +350,9 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
   const vehiclesRef = useRef(vehicles)
   const prevVehiclesRef = useRef<string>("")
   
-  // Only update vehicles ref when vehicles actually change
   if (JSON.stringify(vehicles) !== prevVehiclesRef.current) {
     vehiclesRef.current = vehicles
     prevVehiclesRef.current = JSON.stringify(vehicles)
-    console.log("🚗 VEHICLES ACTUALLY CHANGED - Re-rendering vehicles")
   }
 
   useEffect(() => {
@@ -278,11 +373,13 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const vehicleColor = config?.color || "#3b82f6"
       const isWorking = v.status === "working"
 
-      const vehicleIconHtml = getVehicleIcon(bType, vehicleColor, isWorking)
+      const vehicleIconHtml = isWorking
+        ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
+        : getVehicleIcon(bType, vehicleColor, false)
       const vehicleIcon = L.divIcon({
-        className: `vehicle-marker ${isWorking ? 'vehicle-working' : ''}`,
-        iconSize: [24, 24], // Larger for icons
-        iconAnchor: [12, 12], // Center the icon
+        className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''}`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
         html: vehicleIconHtml
       })
 
@@ -295,6 +392,89 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     })
   }, [prevVehiclesRef.current, ready]) // Only re-render when vehicles actually change
 
+  // 2.5. NPC Traffic rendering via canvas overlay
+  const trafficCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+
+    // Create canvas element for traffic rendering
+    const canvas = document.createElement("canvas")
+    canvas.style.position = "absolute"
+    canvas.style.top = "0"
+    canvas.style.left = "0"
+    canvas.style.width = "100%"
+    canvas.style.height = "100%"
+    canvas.style.pointerEvents = "none"
+    canvas.style.zIndex = "400"
+    
+    const pane = map.getPane("trafficPane")
+    if (pane) {
+      pane.appendChild(canvas)
+    }
+    trafficCanvasRef.current = canvas
+
+    function resizeCanvas() {
+      const container = map!.getContainer()
+      canvas.width = container.clientWidth
+      canvas.height = container.clientHeight
+    }
+    resizeCanvas()
+    map.on("resize", resizeCanvas)
+
+    // Render loop for traffic cars
+    let frameId: ReturnType<typeof setInterval>
+    
+    function renderTraffic() {
+      const ctx = canvas.getContext("2d")
+      if (!ctx || !map) return
+
+      const container = map.getContainer()
+      if (canvas.width !== container.clientWidth || canvas.height !== container.clientHeight) {
+        canvas.width = container.clientWidth
+        canvas.height = container.clientHeight
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      const cars = getCars()
+      for (const car of cars) {
+        const point = map.latLngToContainerPoint([car.lat, car.lng])
+        
+        ctx.save()
+        ctx.translate(point.x, point.y)
+        ctx.rotate(-car.heading + Math.PI / 2)
+        
+        // Draw car body
+        const w = car.width
+        const h = w * 1.8
+        ctx.fillStyle = car.color
+        ctx.beginPath()
+        ctx.roundRect(-w / 2, -h / 2, w, h, 1)
+        ctx.fill()
+        
+        // Subtle shadow
+        ctx.shadowColor = "rgba(0,0,0,0.3)"
+        ctx.shadowBlur = 2
+        ctx.shadowOffsetY = 1
+        
+        ctx.restore()
+      }
+    }
+
+    frameId = setInterval(renderTraffic, 80) // ~12fps for smooth traffic
+
+    return () => {
+      clearInterval(frameId)
+      map.off("resize", resizeCanvas)
+      if (pane && canvas.parentNode === pane) {
+        pane.removeChild(canvas)
+      }
+      trafficCanvasRef.current = null
+    }
+  }, [ready])
+
   // Rydd opp ghost marker når vi er ferdige med å bygge
   useEffect(() => {
     if (!placingBuilding && ghostMarkerRef.current) {
@@ -303,84 +483,65 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     }
   }, [placingBuilding])
 
-  // Store building data in ref to prevent re-renders from game state changes
-  const buildingsRef = useRef(buildings)
-  const prevBuildingsRef = useRef<string>("")
-  const renderCountRef = useRef(0)
-
-  // 2. Tegn Bygninger - COMPLETELY ISOLATED FROM GAME STATE
+  // 2. Tegn Bygninger - Only re-render when buildings structurally change
+  // Use a serialized key to detect real changes (id, type, level, position)
+  const buildingKeyRef = useRef("")
+  const buildingMarkersRef = useRef<Map<string, LType.Marker>>(new Map())
+  
   useEffect(() => {
-    // Update ref only when buildings actually change - INSIDE useEffect
-    if (JSON.stringify(buildings) !== prevBuildingsRef.current) {
-      buildingsRef.current = buildings
-      prevBuildingsRef.current = JSON.stringify(buildings)
-      renderCountRef.current++
-      console.log("🏗️ BUILDINGS ACTUALLY CHANGED - Re-rendering needed, Count:", renderCountRef.current)
-    }
-
     const { buildings: layer } = layersRef.current
     const L = leafletRef.current
     if (!layer || !L || !ready) return
+
+    // Create a lightweight key from building properties that affect rendering
+    const newKey = buildings.map(b => `${b.id}:${b.type}:${b.level}:${b.position.lat}:${b.position.lng}`).join("|")
+    if (newKey === buildingKeyRef.current) return // No change - skip
+    buildingKeyRef.current = newKey
     
-    console.log("🏗️ RENDERING BUILDINGS - Count:", buildingsRef.current.length, "Render #:", renderCountRef.current)
     layer.clearLayers()
+    const newMarkers = new Map<string, LType.Marker>()
 
-    // Add debouncing to prevent rapid re-renders
-    const renderBuildings = () => {
-      buildingsRef.current.forEach((b, index) => {
-        console.log(`🏗️ RENDERING BUILDING ${index + 1}:`, b.name, "Size:", b.size, "Level:", b.level)
-        const size = 28 + (b.level - 1) * 6
-        const config = BUILDING_CONFIGS[b.type]
-        const buildingColor = config?.color || "#3b82f6"
+    buildings.forEach((b) => {
+      const size = 28 + (b.level - 1) * 6
+      const config = BUILDING_CONFIGS[b.type]
+      const buildingColor = config?.color || "#3b82f6"
 
-        const marker = L.marker([b.position.lat, b.position.lng], {
-          icon: L.divIcon({
-            className: "building-icon-container",
-            iconSize: [size, size],
-            iconAnchor: [size / 2, size / 2],
-            html: buildingIconHtml(buildingColor, b.level, size, b.type),
-          }),
-          pane: "buildingsPane",
-          zIndexOffset: 1000,
-          interactive: true,
-          riseOnHover: false,
-        })
-
-        // Bruk DomEvent.on for mer stabil klikk-håndtering i Leaflet
-        marker.on("click", (e) => {
-          console.log("🏗️ BUILDING CLICKED:", b.name, "ID:", b.id, "Type:", b.type, "Level:", b.level)
-          console.log("🎯 Event target:", e.target)
-          console.log("📍 Building position:", b.position)
-          L.DomEvent.stopPropagation(e.originalEvent || e)
-          L.DomEvent.preventDefault(e.originalEvent || e)
-          cb.current.onOpenBuilding(b)
-        })
-
-        marker.on("mouseover", (e) => {
-          console.log("🔍 BUILDING HOVER START:", b.name, "Target:", e.target?.className)
-        })
-
-        marker.on("mouseout", (e) => {
-          console.log("🔍 BUILDING HOVER END:", b.name, "Target:", e.target?.className)
-        })
-
-        marker.bindTooltip(`<b>${b.name}</b>`, {
-          direction: "top",
-          offset: [0, -14],
-          className: "game-tooltip",
-          sticky: false // Gjør at tooltippen ikke "hopper"
-        })
-
-        marker.addTo(layer)
+      const marker = L.marker([b.position.lat, b.position.lng], {
+        icon: L.divIcon({
+          className: "building-icon-container",
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+          html: buildingIconHtml(buildingColor, b.level, size, b.type),
+        }),
+        pane: "buildingsPane",
+        zIndexOffset: 1000,
+        interactive: true,
+        riseOnHover: false,
       })
-    }
 
-    // Debounce rendering to prevent flickering
-    const timeoutId = setTimeout(renderBuildings, 100) // Increased debounce time
-    return () => clearTimeout(timeoutId)
-  }, [buildings, ready]) // Only re-render when buildings actually change
+      marker.on("click", (e) => {
+        L.DomEvent.stopPropagation(e.originalEvent || e)
+        L.DomEvent.preventDefault(e.originalEvent || e)
+        cb.current.onOpenBuilding(b)
+      })
 
-  // 3. Tegn Oppdrag
+      marker.bindTooltip(`<b>${b.name}</b>`, {
+        direction: "top",
+        offset: [0, -14],
+        className: "game-tooltip",
+        sticky: false,
+      })
+
+      marker.addTo(layer)
+      newMarkers.set(b.id, marker)
+    })
+
+    buildingMarkersRef.current = newMarkers
+  }, [buildings, ready])
+
+  // 3. Tegn Oppdrag - zoom-based icons
+  const isZoomedIn = zoomLevel >= 15
+  
   useEffect(() => {
     const { missions: layer } = layersRef.current
     const L = leafletRef.current
@@ -390,13 +551,23 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     missions.filter(m => m.status === "pending" || m.status === "dispatched").forEach(m => {
       const missionConfig = MISSION_CONFIGS[m.type]
       const missionColor = missionConfig?.color || "#ef4444"
+      const isPending = m.status === "pending"
+      const urgency = m.timeRemaining / m.timeLimit
+
+      const iconHtml = isZoomedIn
+        ? missionIconZoomedIn(m.type, missionColor, isPending, urgency)
+        : missionIconZoomedOut(missionColor, isPending, urgency)
+
+      const iconSize: [number, number] = isZoomedIn ? [44, 52] : [28, 36]
+      const iconAnchor: [number, number] = isZoomedIn ? [22, 52] : [14, 36]
+
       const marker = L.marker([m.position.lat, m.position.lng], {
         pane: "missionsPane",
         icon: L.divIcon({
           className: "",
-          iconSize: [28, 36],
-          iconAnchor: [14, 36],
-          html: missionIconHtml(missionColor, m.status === "pending", m.timeRemaining / m.timeLimit),
+          iconSize,
+          iconAnchor,
+          html: iconHtml,
         }),
         zIndexOffset: 200,
       })
@@ -406,7 +577,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       })
       marker.addTo(layer)
     })
-  }, [missions, ready])
+  }, [missions, ready, isZoomedIn])
 
   return (
     <div className={`city-map-container ${placingBuilding ? 'is-placing' : ''}`}>
