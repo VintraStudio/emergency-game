@@ -82,7 +82,6 @@ function applyRouteToVehicle(vehicleId: string, routeCoords: LatLng[]) {
   state = {
     ...state,
     vehicles: nextVehicles,
-    buildings: syncBuildingsWithVehicles(nextVehicles), // ✅
   }
 
   pendingRoutes.delete(vehicleId)
@@ -585,7 +584,6 @@ export function useGameActions() {
           : m,
       ),
       vehicles: nextVehicles,
-      buildings: syncBuildingsWithVehicles(nextVehicles),
     }
     emit()
 
@@ -643,7 +641,11 @@ export function useGameActions() {
 
   const tick = useCallback(() => {
     if (state.isPaused || state.gameOver) return
-    console.log("TICK", Date.now(), state.vehicles.map(v => ({ id: v.id, s: v.status, idx: v.routeIndex })))
+    // Only log every 10th tick to reduce spam
+    if (Math.random() < 0.1) {
+      console.log("⏰ TICK START - Buildings:", state.buildings.length, "Vehicles:", state.vehicles.length, "Managing:", state.managingBuilding?.name || "none")
+      console.log("TICK", Date.now(), state.vehicles.map(v => ({ id: v.id, s: v.status, idx: v.routeIndex })))
+    }
 
     const now = Date.now()
     const realDeltaMs = now - lastTickRealTime
@@ -805,7 +807,7 @@ export function useGameActions() {
       money: newMoney,
       missions: updatedMissions,
       vehicles: updatedVehicles,
-      buildings: syncBuildingsWithVehicles(updatedVehicles), // 
+      buildings: state.buildings,
       missionsCompleted: completed,
       missionsFailed: failed,
       gameTime: newGameTime,
@@ -862,14 +864,19 @@ export function useGameActions() {
       emit()
     },
     openBuildingManager: (building: Building | null) => {
-      if (building) {
-        const fresh = state.buildings.find((b) => b.id === building.id) || building
-        state = { ...state, managingBuilding: fresh }
-      } else {
-        state = { ...state, managingBuilding: null }
-      }
-      emit()
-    },
+  if (building) {
+    const freshBuilding = state.buildings.find((b) => b.id === building.id) || building
+    const buildingVehicles = state.vehicles.filter((v) => v.buildingId === freshBuilding.id)
+
+    state = {
+      ...state,
+      managingBuilding: { ...freshBuilding, vehicles: buildingVehicles },
+    }
+  } else {
+    state = { ...state, managingBuilding: null }
+  }
+  emit()
+},
     togglePause: () => {
       const willUnpause = state.isPaused
       if (willUnpause) {

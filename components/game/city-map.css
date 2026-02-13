@@ -67,12 +67,16 @@
   from { stroke-dashoffset: 1000; }
   to { stroke-dashoffset: 0; }
 }
-
+.leaflet-pane.routesPane,
+.leaflet-pane.vehiclesPane {
+  pointer-events: none !important;
+}
 .vehicle-marker {
   /* No CSS transition -- Leaflet repositions the marker on every tick (500ms).
      A CSS transition would interpolate between old/new positions making movement
      buttery-smooth, but can also cause visual lag.  We let the store handle
      sub-point interpolation instead for precise road-following. */
+     pointer-events: none !important;
   transition: none;
   z-index: 1000 !important;
 }
@@ -85,38 +89,45 @@
   50% { transform: scale(1.3); }
 }
 
-/* --- Ikon Styling --- */
-.map-icon-building {
-  background: rgba(28, 30, 38, 0.92);
+/* --- Building Icon System - Complete Rebuild --- */
+.building-icon-container {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.building-icon-main {
+  background: rgba(28, 30, 38, 0.95);
   border: 2.5px solid;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  width: 100%;
+  height: 100%;
   box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+  cursor: pointer;
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+  z-index: 1;
 }
 
-.map-icon-building svg {
+.building-icon-main:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+  z-index: 2;
+}
+
+.building-icon-main svg {
   width: 60%;
   height: 60%;
+  pointer-events: none;
+  display: block;
 }
 
-.map-icon-building:hover {
-  transform: scale(1.15);
-  z-index: 1000 !important;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.6);
-  cursor: pointer;
-}
-
-.map-icon-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.map-icon-badge {
+.building-icon-badge {
   position: absolute;
   top: -8px;
   right: -8px;
@@ -129,8 +140,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid rgba(28, 30, 38, 0.92);
+  border: 2px solid rgba(28, 30, 38, 0.95);
   box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.map-icon-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.leaflet-marker-icon {
+  background: none !important;
+  border: none !important;
+  outline: none !important;
 }
 
 .map-icon-mission-container {

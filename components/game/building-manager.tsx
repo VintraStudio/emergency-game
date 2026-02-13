@@ -25,7 +25,10 @@ interface BuildingManagerProps {
 export function BuildingManager({
   building, money, onUpgrade, onHireStaff, onPurchaseVehicle, onSell, onClose,
 }: BuildingManagerProps) {
+  console.log("🏗️ BUILDING MANAGER RENDER - Building:", building?.name || "null", "Money:", money)
+  
   if (!building) {
+    console.log("🏗️ BUILDING MANAGER - No building, returning null")
     return null
   }
 
