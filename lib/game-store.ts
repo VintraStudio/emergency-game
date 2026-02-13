@@ -802,12 +802,16 @@ export function useGameActions() {
       stopMissionSpawnTimer()
     }
 
+    // Sync buildings only when vehicles actually changed (avoid new reference every tick)
+    const vehiclesChanged = updatedVehicles !== state.vehicles
+    const nextBuildings = vehiclesChanged ? syncBuildingsWithVehicles(updatedVehicles) : state.buildings
+
     state = {
       ...state,
       money: newMoney,
       missions: updatedMissions,
       vehicles: updatedVehicles,
-      buildings: state.buildings,
+      buildings: nextBuildings,
       missionsCompleted: completed,
       missionsFailed: failed,
       gameTime: newGameTime,
