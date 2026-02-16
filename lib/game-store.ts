@@ -78,15 +78,52 @@ export function useGameActions() {
 // --- Pending route fetches: track in-flight route requests to merge into state safely ---
 const pendingRoutes = new Map<string, Promise<LatLng[]>>()
 
-// Safely apply a resolved route to the current state snapshot.
+// Find the nearest point on route to snap to when upgrading from fallback to OSRM
+function nearestRouteIndex(route: LatLng[], pos: LatLng): number {
+  let best = 0
+  let bestD = Infinity
+  for (let i = 0; i < route.length; i++) {
+    const dLat = route[i].lat - pos.lat
+    const dLng = route[i].lng - pos.lng
+    const d = dLat * dLat + dLng * dLng
+    if (d < bestD) {
+      bestD = d
+      best = i
+    }
+  }
+  return best
+}
+
+// Helper: sync buildings[].vehicles with state.vehicles after each update
+function syncBuildingsWithVehicles(nextVehicles: Vehicle[]) {
+  const byBuilding = new Map<string, Vehicle[]>()
+  for (const v of nextVehicles) {
+    const arr = byBuilding.get(v.buildingId) ?? []
+    arr.push(v)
+    byBuilding.set(v.buildingId, arr)
+  }
+
+  return state.buildings.map((b) => ({
+    ...b,
+    vehicles: (byBuilding.get(b.id) ?? []).map((v) => ({ ...v })),
+  }))
+}
+
+// Safely apply a resolved route to the current state snapshot, preserving progress.
 function applyRouteToVehicle(vehicleId: string, routeCoords: LatLng[]) {
+  const current = state.vehicles.find((v) => v.id === vehicleId)
+  if (!current) return
+
+  const idx = nearestRouteIndex(routeCoords, current.position)
+
   const nextVehicles = state.vehicles.map((v) =>
-    v.id === vehicleId ? { ...v, routeCoords, routeIndex: 0 } : v
+    v.id === vehicleId ? { ...v, routeCoords, routeIndex: idx } : v
   )
 
   state = {
     ...state,
     vehicles: nextVehicles,
+    buildings: syncBuildingsWithVehicles(nextVehicles),
   }
 
   pendingRoutes.delete(vehicleId)
@@ -127,37 +164,6 @@ function fallbackRoute(from: LatLng, to: LatLng): LatLng[] {
   return points
 }
 
-// Find the nearest point on route to snap to when upgrading from fallback to OSRM
-function nearestRouteIndex(route: LatLng[], pos: LatLng): number {
-  let best = 0
-  let bestD = Infinity
-  for (let i = 0; i < route.length; i++) {
-    const dLat = route[i].lat - pos.lat
-    const dLng = route[i].lng - pos.lng
-    const d = dLat * dLat + dLng * dLng
-    if (d < bestD) {
-      bestD = d
-      best = i
-    }
-  }
-  return best
-}
-
-// Helper: sync buildings[].vehicles with state.vehicles after each update
-function syncBuildingsWithVehicles(nextVehicles: Vehicle[]) {
-  const byBuilding = new Map<string, Vehicle[]>()
-  for (const v of nextVehicles) {
-    const arr = byBuilding.get(v.buildingId) ?? []
-    arr.push(v)
-    byBuilding.set(v.buildingId, arr)
-  }
-
-  return state.buildings.map((b) => ({
-    ...b,
-    vehicles: (byBuilding.get(b.id) ?? []).map(v => ({ ...v })),
-  }))
-}
-
 // Vehicle movement: advance along routeCoords, scaled by game speed.
 const TARGET_TICKS_TO_COMPLETE = 600
 
@@ -168,7 +174,7 @@ function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
 
   // Base speed: route points per tick
   const basePointsPerTick = Math.max(0.5, v.routeCoords.length / TARGET_TICKS_TO_COMPLETE)
-  
+
   // Detect road type by looking at the angle change between route segments.
   const idx = Math.floor(v.routeIndex)
   let roadFactor = 1.0
@@ -185,35 +191,34 @@ function moveVehicleAlongRoute(v: Vehicle, gameSpeed: number): Vehicle {
     if (angleDiff > Math.PI / 4) {
       roadFactor = 0.35 // Very slow at sharp corners
     } else if (angleDiff > Math.PI / 8) {
-      roadFactor = 0.6  // Moderate turn
+      roadFactor = 0.6 // Moderate turn
     } else {
       // Check segment length to detect highway vs residential
-      const segDist = Math.sqrt(
-        (next.lat - curr.lat) ** 2 + (next.lng - curr.lng) ** 2
-      )
+      const segDist = Math.sqrt((next.lat - curr.lat) ** 2 + (next.lng - curr.lng) ** 2)
       // Long straight segments = highway
       roadFactor = segDist > 0.0005 ? 1.2 : 0.85
     }
   }
-  
+
   // Small random variation for realistic driving (97-103%)
   const randomVariation = 0.97 + Math.random() * 0.06
-  
+
   // Braking near destination
   const remainingDistance = v.routeCoords.length - 1 - v.routeIndex
   const brakingFactor = remainingDistance < 15 ? 0.25 + (remainingDistance / 15) * 0.75 : 1.0
 
   // Traffic density slowdown: up to 40% slower in heavy traffic areas
   const trafficDensity = getTrafficDensity(v.position.lat, v.position.lng)
-  const trafficFactor = 1.0 - (trafficDensity * 0.4) // 60-100% speed
-  
-  const pointsToMove = basePointsPerTick * gameSpeed * roadFactor * randomVariation * brakingFactor * trafficFactor
-  
+  const trafficFactor = 1.0 - trafficDensity * 0.4 // 60-100% speed
+
+  const pointsToMove =
+    basePointsPerTick * gameSpeed * roadFactor * randomVariation * brakingFactor * trafficFactor
+
   // Clamp movement for smooth, relaxed feel
   const maxMove = basePointsPerTick * 1.3 * gameSpeed
   const clampedMove = Math.min(pointsToMove, maxMove)
   const clampedIndex = Math.min(v.routeIndex + clampedMove, v.routeCoords.length - 1)
-  
+
   // Floor the index to access valid array positions; keep fractional for smooth accumulation
   const flooredIdx = Math.floor(clampedIndex)
   const nextIdx = Math.min(flooredIdx + 1, v.routeCoords.length - 1)
@@ -249,7 +254,10 @@ function internalGenerateMission() {
   const config = MISSION_CONFIGS[type]
   const titleIndex = Math.floor(Math.random() * config.titles.length)
 
-  const position = { lat: state.city.center.lat + (Math.random() - 0.5) * 0.02, lng: state.city.center.lng + (Math.random() - 0.5) * 0.025 }
+  const position = {
+    lat: state.city.center.lat + (Math.random() - 0.5) * 0.02,
+    lng: state.city.center.lng + (Math.random() - 0.5) * 0.025,
+  }
 
   const mission: Mission = {
     id: genId("msn"),
@@ -317,7 +325,7 @@ const dispatchVehicle = (missionId: string) => {
     const buildingsOfType = state.buildings.filter((b) => b.type === bType)
     for (const bld of buildingsOfType) {
       const idle = state.vehicles.find(
-        (v) => v.buildingId === bld.id && v.status === "idle" && !availableVehicles.includes(v),
+        (v) => v.buildingId === bld.id && v.status === "idle" && !availableVehicles.includes(v)
       )
       if (idle) {
         availableVehicles.push(idle)
@@ -330,62 +338,62 @@ const dispatchVehicle = (missionId: string) => {
 
   const vehicleIds = availableVehicles.map((v) => v.id)
 
+  // Set mission -> dispatched once
+  state = {
+    ...state,
+    missions: state.missions.map((m) =>
+      m.id === missionId ? { ...m, status: "dispatched" as const, dispatchedVehicles: vehicleIds } : m
+    ),
+  }
+
   // Start vehicles immediately on fallback routes, upgrade to OSRM in background
   for (const veh of availableVehicles) {
-    // 1) Start instantly on fallback route
-    const fallback = fallbackRoute(veh.position, mission.position)
-    
+    const fb = fallbackRoute(veh.position, mission.position)
+
+    const nextVehicles = state.vehicles.map((v) =>
+      v.id === veh.id
+        ? {
+            ...v,
+            status: "dispatched" as VehicleStatus,
+            missionId: mission.id,
+            routeCoords: fb,
+            routeIndex: 0,
+          }
+        : v
+    )
+
     state = {
       ...state,
-      missions: state.missions.map((m) =>
-        m.id === missionId
-          ? { ...m, status: "dispatched" as const, dispatchedVehicles: vehicleIds }
-          : m,
-      ),
-      vehicles: state.vehicles.map(v =>
-        v.id === veh.id
-          ? { ...v, status: "dispatched" as VehicleStatus, missionId: mission.id, routeCoords: fallback, routeIndex: 0 }
-          : v
-      ),
-      buildings: syncBuildingsWithVehicles(state.vehicles.map(v =>
-        v.id === veh.id
-          ? { ...v, status: "dispatched" as VehicleStatus, missionId: mission.id, routeCoords: fallback, routeIndex: 0 }
-          : v
-      )),
+      vehicles: nextVehicles,
+      buildings: syncBuildingsWithVehicles(nextVehicles),
     }
     emit()
 
-    // 2) Background: try OSRM and upgrade when available
-    const routePromise = getRouteQueued(veh.position, mission.position).then((osrmRoute) => {
-      console.log(`OSRM route fetched for vehicle ${veh.id}: ${osrmRoute.length} points`)
-      
-      // Find current vehicle state and snap to nearest point on new route
-      const current = state.vehicles.find(v => v.id === veh.id)
-      if (!current || current.status !== "dispatched") {
-        console.log(`Vehicle ${veh.id} no longer dispatched, skipping OSRM upgrade`)
+    const p = getRouteQueued(veh.position, mission.position)
+      .then((osrmRoute) => {
+        const current = state.vehicles.find((v) => v.id === veh.id)
+        if (!current || current.status !== "dispatched") return osrmRoute
+
+        const idx = nearestRouteIndex(osrmRoute, current.position)
+
+        const upgradedVehicles = state.vehicles.map((v) =>
+          v.id === veh.id ? { ...v, routeCoords: osrmRoute, routeIndex: idx } : v
+        )
+
+        state = {
+          ...state,
+          vehicles: upgradedVehicles,
+          buildings: syncBuildingsWithVehicles(upgradedVehicles),
+        }
+        emit()
         return osrmRoute
-      }
+      })
+      .catch((err) => {
+        console.log(`OSRM failed for vehicle ${veh.id}, keeping fallback route:`, err)
+        return fb
+      })
 
-      const nearestIndex = nearestRouteIndex(osrmRoute, current.position)
-      
-      // Upgrade to OSRM route without losing progress
-      state = {
-        ...state,
-        vehicles: state.vehicles.map(v =>
-          v.id === veh.id
-            ? { ...v, routeCoords: osrmRoute, routeIndex: nearestIndex }
-            : v
-        ),
-      }
-      emit()
-      return osrmRoute
-    }).catch((error) => {
-      console.log(`OSRM failed for vehicle ${veh.id}, keeping fallback route:`, error)
-      // Silently keep fallback route - no more "standing still"
-      return fallback
-    })
-
-    pendingRoutes.set(veh.id, routePromise)
+    pendingRoutes.set(veh.id, p)
   }
 }
 
@@ -395,8 +403,12 @@ const tick = () => {
   const now = Date.now()
   const realDeltaMs = now - lastTickRealTime
   lastTickRealTime = now
+
   const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
   const newGameTime = state.gameTime + gameMinutesDelta * 60000
+
+  // Optional: advance traffic simulation
+  tickTraffic(gameMinutesDelta)
 
   let newMoney = state.money
   let completed = state.missionsCompleted
@@ -405,21 +417,23 @@ const tick = () => {
   // --- Move vehicles (speed-scaled) ---
   let updatedVehicles = state.vehicles.map((v) => {
     if (v.status === "dispatched") {
-      // Only move if we have a valid route
       if (v.routeCoords.length === 0) return v
+
       const moved = moveVehicleAlongRoute(v, state.gameSpeed)
       if (moved.routeIndex >= moved.routeCoords.length - 1) {
         const mission = state.missions.find((m) => m.id === v.missionId)
-        // Park offset: fan out vehicles around mission site (~20m apart)
+
+        // Park offset: fan out vehicles around mission site
         const dispatchedToSameMission = state.vehicles.filter(
           (vv) => vv.missionId === v.missionId && vv.id !== v.id && vv.status === "working"
         ).length
-        const angle = (dispatchedToSameMission * Math.PI * 0.6) + (Math.PI * 0.25)
+        const angle = dispatchedToSameMission * Math.PI * 0.6 + Math.PI * 0.25
         const parkDist = 0.00025 // ~25m offset
         const parkedPos = {
           lat: moved.position.lat + Math.cos(angle) * parkDist,
           lng: moved.position.lng + Math.sin(angle) * parkDist,
         }
+
         return {
           ...moved,
           position: parkedPos,
@@ -431,19 +445,18 @@ const tick = () => {
     }
 
     if (v.status === "working") {
-      // Work time decreases by game minutes elapsed this tick
       const remaining = v.workTimeRemaining - gameMinutesDelta
       if (remaining <= 0) {
         const building = state.buildings.find((b) => b.id === v.buildingId)
         if (building) {
-          // Give an immediate fallback route so vehicle starts returning instantly
+          // Start returning immediately via fallback, then upgrade in background
           const fallbackReturn = fallbackRoute(v.position, building.position)
-          // Also fetch real route in background
-          const returnPromise = getRouteQueued(v.position, building.position).then((routeCoords: LatLng[]) => {
+
+          const p = getRouteQueued(v.position, building.position).then((routeCoords) => {
             applyRouteToVehicle(v.id, routeCoords)
             return routeCoords
           })
-          pendingRoutes.set(v.id, returnPromise)
+          pendingRoutes.set(v.id, p)
 
           return {
             ...v,
@@ -453,13 +466,22 @@ const tick = () => {
             routeIndex: 0,
           }
         }
-        return { ...v, status: "idle" as VehicleStatus, workTimeRemaining: 0, routeCoords: [], routeIndex: 0 }
+
+        return {
+          ...v,
+          status: "idle" as VehicleStatus,
+          workTimeRemaining: 0,
+          routeCoords: [],
+          routeIndex: 0,
+          missionId: undefined,
+        }
       }
       return { ...v, workTimeRemaining: remaining }
     }
 
     if (v.status === "returning") {
       if (v.routeCoords.length === 0) return v
+
       const moved = moveVehicleAlongRoute(v, state.gameSpeed)
       if (moved.routeIndex >= moved.routeCoords.length - 1) {
         const building = state.buildings.find((b) => b.id === v.buildingId)
@@ -485,12 +507,13 @@ const tick = () => {
 
       const newTime = Math.max(0, m.timeRemaining - gameMinutesDelta)
 
-      // Check if all dispatched vehicles finished working
+      // Mission completes when all its vehicles are returning/idle
       if (m.status === "dispatched") {
         const dispVehicles = updatedVehicles.filter((v) => v.missionId === m.id)
         const allDone =
           dispVehicles.length > 0 &&
           dispVehicles.every((v) => v.status === "returning" || v.status === "idle")
+
         if (allDone) {
           newMoney += m.reward
           completed++
@@ -498,21 +521,23 @@ const tick = () => {
         }
       }
 
+      // Mission fails if time runs out
       if (newTime <= 0) {
         newMoney -= m.penalty
         failed++
+
         const failedVehIds = new Set(m.dispatchedVehicles)
         updatedVehicles = updatedVehicles.map((v) => {
           if (failedVehIds.has(v.id) && v.status !== "idle") {
             const building = state.buildings.find((b) => b.id === v.buildingId)
             if (building && (v.status === "dispatched" || v.status === "working")) {
-              // Give an immediate fallback route for return
               const fallbackReturn = fallbackRoute(v.position, building.position)
-              const returnPromise = getRouteQueued(v.position, building.position).then((routeCoords: LatLng[]) => {
+
+              const p = getRouteQueued(v.position, building.position).then((routeCoords) => {
                 applyRouteToVehicle(v.id, routeCoords)
                 return routeCoords
               })
-              pendingRoutes.set(v.id, returnPromise)
+              pendingRoutes.set(v.id, p)
 
               return {
                 ...v,
@@ -525,6 +550,7 @@ const tick = () => {
           }
           return v
         })
+
         return { ...m, status: "failed" as const, timeRemaining: 0 }
       }
 
@@ -538,95 +564,18 @@ const tick = () => {
       return true
     })
 
-    state = {
-      ...state,
-      missions: state.missions.map((m) =>
-        m.id === missionId
-          ? { ...m, status: "dispatched" as const, dispatchedVehicles: vehicleIds }
-          : m,
-      ),
-      vehicles: nextVehicles,
-    }
-    emit()
-
-    // Fetch real OSRM road routes asynchronously; once resolved, set status to "dispatched"
-    // and start moving with the actual road geometry ONLY when route is ready
-    for (const veh of availableVehicles) {
-      console.log("[v0] Fetching OSRM route for vehicle", veh.id, "from", veh.position, "to", mission.position)
-      const routePromise = fetchRoute(veh.position, mission.position).then((routeCoords) => {
-        console.log("[v0] Route received for", veh.id, "with", routeCoords.length, "coords")
-        // Read current vehicle state to preserve progress
-        const currentVeh = state.vehicles.find((v) => v.id === veh.id)
-        if (!currentVeh) {
-          console.log("[v0] Vehicle", veh.id, "no longer exists in state, skipping route apply")
-          pendingRoutes.delete(veh.id)
-          return routeCoords
-        }
-        
-        // Accept route if vehicle is preparing OR dispatched-without-route
-        if (currentVeh.status !== "preparing" && !(currentVeh.status === "dispatched" && currentVeh.routeCoords.length === 0)) {
-          console.log("[v0] Vehicle", veh.id, "status is", currentVeh.status, "skipping route")
-          pendingRoutes.delete(veh.id)
-          return routeCoords
-        }
-
-        console.log("[v0] Applying route to vehicle", veh.id, "status was:", currentVeh.status)
-        // Update vehicle with real route and change status to "dispatched"
-        const updatedVehicles = state.vehicles.map((v) =>
-          v.id === veh.id
-            ? { 
-                ...v, 
-                status: "dispatched" as VehicleStatus,
-                routeCoords: routeCoords, 
-                routeIndex: 0,
-                preparationTimeRemaining: undefined
-              }
-            : v,
-        )
-        state = {
-          ...state,
-          vehicles: updatedVehicles,
-          buildings: syncBuildingsWithVehicles(updatedVehicles),
-        }
-        pendingRoutes.delete(veh.id)
-        emit()
-        
-        return routeCoords
-      }).catch((err) => {
-        console.warn("[v0] Route fetch error for vehicle", veh.id, err)
-        // Apply fallback interpolated route so the vehicle still moves
-        const fallback = interpolateRoute(veh.position, mission.position)
-        const updatedVehicles = state.vehicles.map((v) =>
-          v.id === veh.id
-            ? { 
-                ...v, 
-                status: "dispatched" as VehicleStatus,
-                routeCoords: fallback, 
-                routeIndex: 0,
-                preparationTimeRemaining: undefined
-              }
-            : v,
-        )
-        state = {
-          ...state,
-          vehicles: updatedVehicles,
-          buildings: syncBuildingsWithVehicles(updatedVehicles),
-        }
-        pendingRoutes.delete(veh.id)
-        emit()
-        return fallback
-      })
-      pendingRoutes.set(veh.id, routePromise)
-    }
-  }, [])
-
   // Sync buildings only when vehicle status/assignment changed (not just position)
-  const vehicleStatusChanged = updatedVehicles.some((v, i) => {
-    const old = state.vehicles[i]
-    if (!old) return true
-    return v.status !== old.status || v.missionId !== old.missionId || v.buildingId !== old.buildingId
-  }) || updatedVehicles.length !== state.vehicles.length
+  const vehicleStatusChanged =
+    updatedVehicles.some((v, i) => {
+      const old = state.vehicles[i]
+      if (!old) return true
+      return v.status !== old.status || v.missionId !== old.missionId || v.buildingId !== old.buildingId
+    }) || updatedVehicles.length !== state.vehicles.length
+
   const nextBuildings = vehicleStatusChanged ? syncBuildingsWithVehicles(updatedVehicles) : state.buildings
+
+  // TODO: replace with your real game over logic if you have one
+  const isGameOver = false
 
   state = {
     ...state,
@@ -642,70 +591,16 @@ const tick = () => {
   emit()
 }
 
+// Keep updateTime minimal (smooth clock) — tick() handles simulation.
 const updateTime = () => {
-  // Delta-based time update: only advances by the real time elapsed since
-  // the last call, scaled by the *current* speed. This avoids jumps when
-  // switching speed modes because we never recompute the entire elapsed time.
-  if (!state.isPaused && !state.gameOver) {
-    const now = Date.now()
-    const realDeltaMs = now - lastTimeUpdateRealTime
-    lastTimeUpdateRealTime = now
-    const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
-    const newGameTime = state.gameTime + gameMinutesDelta * 60000 // add as ms offset
-
-    let newMoney = state.money
-    let completed = state.missionsCompleted
-    let failed = state.missionsFailed
-
-    // --- Move vehicles (speed-scaled) ---
-    let anyVehicleMoved = false
-    let updatedVehicles = state.vehicles.map((v) => {
-      if (v.status === "preparing") {
-        // Handle preparation countdown - do NOT move until OSRM route is ready
-        const newPrepTime = (v.preparationTimeRemaining || 0) - gameMinutesDelta
-        if (newPrepTime <= -5) {
-          // Route fetch is taking too long (5+ extra game-minutes), apply fallback
-          const mission = state.missions.find((m) => m.id === v.missionId)
-          if (mission) {
-            console.log("[v0] Preparing timeout for", v.id, "- using fallback route")
-            const fallback = interpolateRoute(v.position, mission.position)
-            return {
-              ...v,
-              status: "dispatched" as VehicleStatus,
-              routeCoords: fallback,
-              routeIndex: 0,
-              preparationTimeRemaining: undefined,
-            }
-          }
-        }
-        return { ...v, preparationTimeRemaining: Math.min(newPrepTime, 0) }
-      }
-      if (v.status === "dispatched") {
-        // Only move if we have a valid OSRM route
-        if (v.routeCoords.length === 0) return v
-        anyVehicleMoved = true
-        const moved = moveVehicleAlongRoute(v, state.gameSpeed)
-        if (moved.routeIndex >= moved.routeCoords.length - 1) {
-          const mission = state.missions.find((m) => m.id === v.missionId)
-          // Park offset: fan out vehicles around mission site (~20m apart)
-          const dispatchedToSameMission = state.vehicles.filter(
-            (vv) => vv.missionId === v.missionId && vv.id !== v.id && vv.status === "working"
-          ).length
-          const angle = (dispatchedToSameMission * Math.PI * 0.6) + (Math.PI * 0.25)
-          const parkDist = 0.00025 // ~25m offset
-          const parkedPos = {
-            lat: moved.position.lat + Math.cos(angle) * parkDist,
-            lng: moved.position.lng + Math.sin(angle) * parkDist,
-          }
-          return {
-            ...moved,
-            position: parkedPos,
-            status: "working" as VehicleStatus,
-            workTimeRemaining: mission?.workDuration ?? 8,
-          }
-        }
-        return moved
-      }
+  if (state.isPaused || state.gameOver) return
+  const now = Date.now()
+  const realDeltaMs = now - lastTimeUpdateRealTime
+  lastTimeUpdateRealTime = now
+  const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
+  state = { ...state, gameTime: state.gameTime + gameMinutesDelta * 60000 }
+  emit()
+}
 
 const clearNewMissions = () => {
   state = { ...state, newMissions: [], unreadMissionCount: 0 }
@@ -750,33 +645,25 @@ const gameStore = {
   togglePause: () => {
     const willUnpause = state.isPaused
     if (willUnpause) {
-      // Resync clocks so that the first tick/update doesn't include the paused duration
       const now = Date.now()
       lastTickRealTime = now
       lastTimeUpdateRealTime = now
     }
+
     state = { ...state, isPaused: !state.isPaused }
     emit()
 
-    // Start or stop the mission auto-spawn timer
-    if (willUnpause) {
-      scheduleNextMissionSpawn()
-    } else {
-      stopMissionSpawnTimer()
-    }
+    if (willUnpause) scheduleNextMissionSpawn()
+    else stopMissionSpawnTimer()
   },
   setGameSpeed: (speed: 1 | 2 | 3) => {
-    // Resync clocks so that speed change takes effect cleanly from this moment
     const now = Date.now()
     lastTickRealTime = now
     lastTimeUpdateRealTime = now
     state = { ...state, gameSpeed: speed }
     emit()
 
-    // Reschedule mission spawn timer with new speed
-    if (!state.isPaused && !state.gameOver) {
-      scheduleNextMissionSpawn()
-    }
+    if (!state.isPaused && !state.gameOver) scheduleNextMissionSpawn()
   },
   setCity: (city: CityConfig) => {
     state = { ...state, city, population: city.population }
@@ -786,22 +673,28 @@ const gameStore = {
     const now = Date.now()
     lastTickRealTime = now
     lastTimeUpdateRealTime = now
-    state = { 
-      ...state, 
-      gameTime: now, 
+    state = {
+      ...state,
+      gameTime: now,
       gameStartTime: now,
-      isPaused: false 
+      isPaused: false,
     }
     emit()
-
-    // Start mission auto-spawn timer immediately on game start
     scheduleNextMissionSpawn()
   },
   resetGame: () => {
     nextId = 1
     stopMissionSpawnTimer()
     pendingRoutes.clear()
-    state = { ...INITIAL_STATE, buildings: [], missions: [], vehicles: [], city: null, newMissions: [], unreadMissionCount: 0 }
+    state = {
+      ...INITIAL_STATE,
+      buildings: [],
+      missions: [],
+      vehicles: [],
+      city: null,
+      newMissions: [],
+      unreadMissionCount: 0,
+    }
     emit()
   },
   placeBuilding: (type: BuildingType, position: LatLng, size: BuildingSize = "small") => {
@@ -811,28 +704,24 @@ const gameStore = {
     const cost = size === "small" ? config.smallCost : config.largeCost
     if (state.money < cost) return
 
-    // Create initial vehicles for the building
     const initialVehicles: Vehicle[] = []
     for (const vehicleConfig of config.vehicles) {
       for (let i = 0; i < vehicleConfig.count; i++) {
-        const vehicle: Vehicle = {
+        initialVehicles.push({
           id: genId("veh"),
           type: vehicleConfig.type,
-          buildingId: "", // Will be set after building is created
+          buildingId: "", // set after building created
           position,
           status: "idle",
           routeCoords: [],
           routeIndex: 0,
           workTimeRemaining: 0,
-        }
-        initialVehicles.push(vehicle)
+        })
       }
     }
 
     const buildingId = genId("bld")
-    
-    // Update vehicles with the building ID
-    initialVehicles.forEach(v => v.buildingId = buildingId)
+    initialVehicles.forEach((v) => (v.buildingId = buildingId))
 
     const building: Building = {
       id: buildingId,
@@ -842,7 +731,7 @@ const gameStore = {
       name: config.name,
       position,
       vehicles: initialVehicles,
-      staff: Math.floor((size === "small" ? 5 : 10) * 0.6), // Start with 60% staff
+      staff: Math.floor((size === "small" ? 5 : 10) * 0.6),
       maxStaff: size === "small" ? 5 : 10,
       upgrades: [],
       cost,
@@ -869,9 +758,7 @@ const gameStore = {
     state = {
       ...state,
       money: state.money - upgradeCost,
-      buildings: state.buildings.map((b) =>
-        b.id === buildingId ? { ...b, level: b.level + 1 } : b
-      ),
+      buildings: state.buildings.map((b) => (b.id === buildingId ? { ...b, level: b.level + 1 } : b)),
     }
     emit()
   },
@@ -882,8 +769,7 @@ const gameStore = {
     const config = BUILDING_CONFIGS[building.type]
     const originalCost = building.size === "small" ? config.smallCost : config.largeCost
     const sellPrice = Math.floor(originalCost * 0.7)
-    
-    // Remove all vehicles from this building
+
     const updatedVehicles = state.vehicles.filter((v) => v.buildingId !== buildingId)
 
     state = {
@@ -904,9 +790,7 @@ const gameStore = {
     state = {
       ...state,
       money: state.money - config.staffCost,
-      buildings: state.buildings.map((b) =>
-        b.id === buildingId ? { ...b, staff: b.staff + 1 } : b
-      ),
+      buildings: state.buildings.map((b) => (b.id === buildingId ? { ...b, staff: b.staff + 1 } : b)),
     }
     emit()
   },
@@ -933,9 +817,10 @@ const gameStore = {
       ...state,
       money: state.money - config.vehicleCost,
       vehicles: [...state.vehicles, vehicle],
+      buildings: syncBuildingsWithVehicles([...state.vehicles, vehicle]),
     }
     emit()
-  }
+  },
 }
 
 export default gameStore
