@@ -538,11 +538,87 @@ const tick = () => {
       return true
     })
 
-  const isGameOver = newMoney < 0
+    state = {
+      ...state,
+      missions: state.missions.map((m) =>
+        m.id === missionId
+          ? { ...m, status: "dispatched" as const, dispatchedVehicles: vehicleIds }
+          : m,
+      ),
+      vehicles: nextVehicles,
+    }
+    emit()
 
-  if (isGameOver) {
-    stopMissionSpawnTimer()
-  }
+    // Fetch real OSRM road routes asynchronously; once resolved, set status to "dispatched"
+    // and start moving with the actual road geometry ONLY when route is ready
+    for (const veh of availableVehicles) {
+      console.log("[v0] Fetching OSRM route for vehicle", veh.id, "from", veh.position, "to", mission.position)
+      const routePromise = fetchRoute(veh.position, mission.position).then((routeCoords) => {
+        console.log("[v0] Route received for", veh.id, "with", routeCoords.length, "coords")
+        // Read current vehicle state to preserve progress
+        const currentVeh = state.vehicles.find((v) => v.id === veh.id)
+        if (!currentVeh) {
+          console.log("[v0] Vehicle", veh.id, "no longer exists in state, skipping route apply")
+          pendingRoutes.delete(veh.id)
+          return routeCoords
+        }
+        
+        // Accept route if vehicle is preparing OR dispatched-without-route
+        if (currentVeh.status !== "preparing" && !(currentVeh.status === "dispatched" && currentVeh.routeCoords.length === 0)) {
+          console.log("[v0] Vehicle", veh.id, "status is", currentVeh.status, "skipping route")
+          pendingRoutes.delete(veh.id)
+          return routeCoords
+        }
+
+        console.log("[v0] Applying route to vehicle", veh.id, "status was:", currentVeh.status)
+        // Update vehicle with real route and change status to "dispatched"
+        const updatedVehicles = state.vehicles.map((v) =>
+          v.id === veh.id
+            ? { 
+                ...v, 
+                status: "dispatched" as VehicleStatus,
+                routeCoords: routeCoords, 
+                routeIndex: 0,
+                preparationTimeRemaining: undefined
+              }
+            : v,
+        )
+        state = {
+          ...state,
+          vehicles: updatedVehicles,
+          buildings: syncBuildingsWithVehicles(updatedVehicles),
+        }
+        pendingRoutes.delete(veh.id)
+        emit()
+        
+        return routeCoords
+      }).catch((err) => {
+        console.warn("[v0] Route fetch error for vehicle", veh.id, err)
+        // Apply fallback interpolated route so the vehicle still moves
+        const fallback = interpolateRoute(veh.position, mission.position)
+        const updatedVehicles = state.vehicles.map((v) =>
+          v.id === veh.id
+            ? { 
+                ...v, 
+                status: "dispatched" as VehicleStatus,
+                routeCoords: fallback, 
+                routeIndex: 0,
+                preparationTimeRemaining: undefined
+              }
+            : v,
+        )
+        state = {
+          ...state,
+          vehicles: updatedVehicles,
+          buildings: syncBuildingsWithVehicles(updatedVehicles),
+        }
+        pendingRoutes.delete(veh.id)
+        emit()
+        return fallback
+      })
+      pendingRoutes.set(veh.id, routePromise)
+    }
+  }, [])
 
   // Sync buildings only when vehicle status/assignment changed (not just position)
   const vehicleStatusChanged = updatedVehicles.some((v, i) => {
@@ -575,11 +651,61 @@ const updateTime = () => {
     const realDeltaMs = now - lastTimeUpdateRealTime
     lastTimeUpdateRealTime = now
     const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
-    const newGameTime = state.gameTime + gameMinutesDelta * 60000
-    state = { ...state, gameTime: newGameTime }
-    emit()
-  }
-}
+    const newGameTime = state.gameTime + gameMinutesDelta * 60000 // add as ms offset
+
+    let newMoney = state.money
+    let completed = state.missionsCompleted
+    let failed = state.missionsFailed
+
+    // --- Move vehicles (speed-scaled) ---
+    let anyVehicleMoved = false
+    let updatedVehicles = state.vehicles.map((v) => {
+      if (v.status === "preparing") {
+        // Handle preparation countdown - do NOT move until OSRM route is ready
+        const newPrepTime = (v.preparationTimeRemaining || 0) - gameMinutesDelta
+        if (newPrepTime <= -5) {
+          // Route fetch is taking too long (5+ extra game-minutes), apply fallback
+          const mission = state.missions.find((m) => m.id === v.missionId)
+          if (mission) {
+            console.log("[v0] Preparing timeout for", v.id, "- using fallback route")
+            const fallback = interpolateRoute(v.position, mission.position)
+            return {
+              ...v,
+              status: "dispatched" as VehicleStatus,
+              routeCoords: fallback,
+              routeIndex: 0,
+              preparationTimeRemaining: undefined,
+            }
+          }
+        }
+        return { ...v, preparationTimeRemaining: Math.min(newPrepTime, 0) }
+      }
+      if (v.status === "dispatched") {
+        // Only move if we have a valid OSRM route
+        if (v.routeCoords.length === 0) return v
+        anyVehicleMoved = true
+        const moved = moveVehicleAlongRoute(v, state.gameSpeed)
+        if (moved.routeIndex >= moved.routeCoords.length - 1) {
+          const mission = state.missions.find((m) => m.id === v.missionId)
+          // Park offset: fan out vehicles around mission site (~20m apart)
+          const dispatchedToSameMission = state.vehicles.filter(
+            (vv) => vv.missionId === v.missionId && vv.id !== v.id && vv.status === "working"
+          ).length
+          const angle = (dispatchedToSameMission * Math.PI * 0.6) + (Math.PI * 0.25)
+          const parkDist = 0.00025 // ~25m offset
+          const parkedPos = {
+            lat: moved.position.lat + Math.cos(angle) * parkDist,
+            lng: moved.position.lng + Math.sin(angle) * parkDist,
+          }
+          return {
+            ...moved,
+            position: parkedPos,
+            status: "working" as VehicleStatus,
+            workTimeRemaining: mission?.workDuration ?? 8,
+          }
+        }
+        return moved
+      }
 
 const clearNewMissions = () => {
   state = { ...state, newMissions: [], unreadMissionCount: 0 }

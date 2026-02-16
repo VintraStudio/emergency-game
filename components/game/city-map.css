@@ -606,6 +606,16 @@
   50% { opacity: 0.3; }
 }
 
+/* Preparing vehicle (waiting for route) - blinks to signal loading */
+.vehicle-preparing {
+  animation: vehiclePreparing 0.6s ease-in-out infinite !important;
+}
+
+@keyframes vehiclePreparing {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
 /* --- Building Icon System - Complete Rebuild --- */
 .building-icon-container {
   position: relative;

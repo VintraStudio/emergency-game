@@ -1,15 +1,15 @@
 /**
  * NPC Traffic Manager
  * Cars drive along real OSRM routes on the road network.
- * Each car spawns with a pre-generated route and follows it smoothly.
+ * Features:
+ *  - Tiny round dots (1.5-2.5px radius)
+ *  - Slow, realistic speed matching road type
+ *  - Seamless path refresh: pre-fetches next route before current one ends
+ *  - Traffic light simulation at intersections (red/green cycles)
+ *  - Following distance collision avoidance
+ *  - 40+ cars visible in viewport at all times
+ *
  * Routes are hidden from the player -- only unit routes are rendered.
- *
- * Cars:
- *  - Are tiny round dots (2-3px radius)
- *  - Slow at corners/junctions, faster on straight roads
- *  - Keep safe following distance (no collisions)
- *  - Stop at intersections occasionally (simulated traffic lights)
- *
  * This module is standalone (not in React state) to avoid re-renders.
  */
 
@@ -20,140 +20,113 @@ export interface TrafficCar {
   lat: number
   lng: number
   routeCoords: { lat: number; lng: number }[]
-  routeIndex: number     // fractional index along route
-  speed: number          // base route-points per tick
-  heading: number        // current heading in radians
+  routeIndex: number
+  speed: number
+  heading: number
   color: string
-  radius: number         // render radius in px (tiny)
-  stoppedTicks: number   // ticks remaining stopped
+  stoppedTicks: number
   active: boolean
-  routePending: boolean  // true while OSRM fetch is in flight
+  routePending: boolean
+  // Pre-fetched next route for seamless continuation
+  nextRoute: { lat: number; lng: number }[] | null
+  nextRoutePending: boolean
 }
 
-// Realistic car colors (muted, realistic palette)
+// Realistic muted car colors
 const CAR_COLORS = [
-  "#c8ccd0", // silver
-  "#1a1a1a", // black
-  "#e8e8e8", // white
-  "#3b4252", // dark gray
-  "#1e3a5f", // dark blue
-  "#7a2020", // dark red
-  "#2d5016", // dark green
-  "#5c4033", // brown
-  "#8899aa", // blue-gray
-  "#b22222", // firebrick
-  "#4a6274", // steel
-  "#f5f0e8", // cream
+  "#c8ccd0", "#2a2a2a", "#e0e0e0", "#3b4252", "#1e3a5f",
+  "#7a2020", "#2d5016", "#5c4033", "#8899aa", "#b22222",
+  "#4a6274", "#f0ece4", "#6b7280", "#444d5a", "#8b6914",
+  "#364f3b", "#556270", "#a0a0a0", "#2c3e50", "#d4c5a0",
 ]
 
-const TARGET_CARS = 28
-const INTERSECTION_STOP_TICKS_MIN = 10    // ~1s minimum stop
-const INTERSECTION_STOP_TICKS_MAX = 30    // ~3s max stop
-const FOLLOWING_DISTANCE = 0.00012        // ~13m safe distance
-const ROUTE_FETCH_CONCURRENCY = 3         // max parallel OSRM requests
+const TARGET_CARS = 45
+const MAX_PENDING_FETCHES = 4
+const FOLLOWING_DISTANCE = 0.00015 // ~15m
+// Traffic light: intersection stops cycle between 15-40 ticks (1.2-3.2s at 80ms render)
+const RED_LIGHT_MIN = 15
+const RED_LIGHT_MAX = 40
 
-// Viewport bounds
+// Module state
 let viewBounds = { north: 0, south: 0, east: 0, west: 0 }
 let isActive = false
-
-// Car pool
 const cars: TrafficCar[] = []
 let nextCarId = 0
-let pendingRouteFetches = 0
+let pendingFetches = 0
 
-// ----- OSRM route fetching (same API as game units) -----
+// ---- OSRM route fetching ----
 
-async function fetchCarRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ lat: number; lng: number }[]> {
+async function fetchCarRoute(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): Promise<{ lat: number; lng: number }[]> {
   try {
-    return await getRouteQueued(from, to)
-  } catch (error) {
-    console.warn("Traffic route fetch failed, using fallback:", error)
-    // Generate simple fallback route
-    return generateFallbackRoute(from, to)
-  }
-}
-
-// Simple fallback route generator
-function generateFallbackRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }): { lat: number; lng: number }[] {
-  const steps = 20
-  const points: { lat: number; lng: number }[] = []
-  
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps
-    // Simple curved path
-    const midLat = (from.lat + to.lat) / 2
-    const midLng = (from.lng + to.lng) / 2
-    const curve = 0.0001 * Math.sin(t * Math.PI) // Small curve
-    
-    points.push({
-      lat: from.lat + (midLat - from.lat) * 2 * t + curve,
-      lng: from.lng + (midLng - from.lng) * 2 * t
-    })
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = await res.json()
+    if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates?.length >= 2) {
+      return data.routes[0].geometry.coordinates.map(
+        ([lng, lat]: [number, number]) => ({ lat, lng }),
+      )
+    }
+  } catch {
+    // silent
   }
   
   return points
 }
 
-// Generate a random start point at the edge of the viewport (or slightly outside)
-function randomEdgePoint(): { lat: number; lng: number } {
-  const margin = 0.003
-  const edge = Math.floor(Math.random() * 4)
-  const latSpan = viewBounds.north - viewBounds.south
-  const lngSpan = viewBounds.east - viewBounds.west
+// ---- Spawning helpers ----
 
-  switch (edge) {
-    case 0: return { lat: viewBounds.north + margin, lng: viewBounds.west + Math.random() * lngSpan }
-    case 1: return { lat: viewBounds.south + Math.random() * latSpan, lng: viewBounds.east + margin }
-    case 2: return { lat: viewBounds.south - margin, lng: viewBounds.west + Math.random() * lngSpan }
-    default: return { lat: viewBounds.south + Math.random() * latSpan, lng: viewBounds.west - margin }
+/** Random point inside the viewport (with slight padding) */
+function randomViewportPoint(): { lat: number; lng: number } {
+  const pad = 0.001
+  return {
+    lat: viewBounds.south + pad + Math.random() * (viewBounds.north - viewBounds.south - pad * 2),
+    lng: viewBounds.west + pad + Math.random() * (viewBounds.east - viewBounds.west - pad * 2),
   }
 }
 
-// Generate a random destination across the viewport
-function randomDestination(from: { lat: number; lng: number }): { lat: number; lng: number } {
-  // Pick a point on the opposite-ish side of the viewport to get a nice long route
+/** Random destination across/through the viewport */
+function randomDestination(): { lat: number; lng: number } {
+  // Pick a random point in a larger area around the viewport
+  const latSpan = viewBounds.north - viewBounds.south
+  const lngSpan = viewBounds.east - viewBounds.west
   const latCenter = (viewBounds.north + viewBounds.south) / 2
   const lngCenter = (viewBounds.east + viewBounds.west) / 2
-  const latSpan = viewBounds.north - viewBounds.south
-  const lngSpan = viewBounds.east - viewBounds.west
-
-  // Offset from center, biased away from the starting point
-  const dLat = from.lat > latCenter ? -0.3 - Math.random() * 0.5 : 0.3 + Math.random() * 0.5
-  const dLng = from.lng > lngCenter ? -0.3 - Math.random() * 0.5 : 0.3 + Math.random() * 0.5
-
   return {
-    lat: latCenter + dLat * latSpan * 0.5 + (Math.random() - 0.5) * latSpan * 0.3,
-    lng: lngCenter + dLng * lngSpan * 0.5 + (Math.random() - 0.5) * lngSpan * 0.3,
+    lat: latCenter + (Math.random() - 0.5) * latSpan * 1.4,
+    lng: lngCenter + (Math.random() - 0.5) * lngSpan * 1.4,
   }
 }
 
-// Spawn a car shell (route will be fetched async)
-function createCar(): TrafficCar {
-  const start = randomEdgePoint()
+function createCarShell(): TrafficCar {
+  const pos = randomViewportPoint()
   return {
     id: nextCarId++,
-    lat: start.lat,
-    lng: start.lng,
+    lat: pos.lat,
+    lng: pos.lng,
     routeCoords: [],
     routeIndex: 0,
-    speed: (0.4 + Math.random() * 0.3) * 0.5, // route-points per tick (50% slower NPC speed)
+    speed: 0.15 + Math.random() * 0.15, // Very slow: 0.15-0.30 points/tick
     heading: 0,
     color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)],
-    radius: 2, // tiny dots
     stoppedTicks: 0,
     active: true,
     routePending: true,
+    nextRoute: null,
+    nextRoutePending: false,
   }
 }
 
-// Fetch a route for a car, then mark it ready
 async function assignRoute(car: TrafficCar) {
-  pendingRouteFetches++
-  const dest = randomDestination(car)
+  pendingFetches++
+  const dest = randomDestination()
   const route = await fetchCarRoute({ lat: car.lat, lng: car.lng }, dest)
-  pendingRouteFetches--
+  pendingFetches--
 
-  if (route.length >= 2) {
+  if (route.length >= 3) {
     car.routeCoords = route
     car.routeIndex = 0
     car.lat = route[0].lat
@@ -161,15 +134,31 @@ async function assignRoute(car: TrafficCar) {
     car.heading = Math.atan2(route[1].lng - route[0].lng, route[1].lat - route[0].lat)
     car.routePending = false
   } else {
-    // Route fetch failed -- deactivate so it gets recycled
+    // Failed -- kill the car, it will be replaced
     car.active = false
     car.routePending = false
   }
 }
 
-// ----- Movement helpers -----
+/** Pre-fetch a continuation route from the end of the current route */
+async function prefetchNextRoute(car: TrafficCar) {
+  if (car.nextRoutePending || car.nextRoute) return
+  car.nextRoutePending = true
+  pendingFetches++
 
-// Check angle between consecutive route segments
+  const endPt = car.routeCoords[car.routeCoords.length - 1]
+  const dest = randomDestination()
+  const route = await fetchCarRoute(endPt, dest)
+  pendingFetches--
+  car.nextRoutePending = false
+
+  if (route.length >= 3) {
+    car.nextRoute = route
+  }
+}
+
+// ---- Movement helpers ----
+
 function getAngleChange(coords: { lat: number; lng: number }[], idx: number): number {
   if (idx < 1 || idx >= coords.length - 1) return 0
   const prev = coords[idx - 1]
@@ -182,15 +171,14 @@ function getAngleChange(coords: { lat: number; lng: number }[], idx: number): nu
   return diff
 }
 
-// Get road-speed factor from angle change
 function roadSpeedFactor(angleDiff: number, segLength: number): number {
-  if (angleDiff > Math.PI / 4) return 0.25      // sharp corner / junction
-  if (angleDiff > Math.PI / 8) return 0.5       // moderate turn
-  if (segLength > 0.0005) return 1.1             // highway-like straight
-  return 0.8                                      // residential
+  if (angleDiff > Math.PI / 3) return 0.15   // very sharp = nearly stopped
+  if (angleDiff > Math.PI / 4) return 0.3    // sharp corner
+  if (angleDiff > Math.PI / 8) return 0.55   // moderate turn
+  if (segLength > 0.0005) return 1.0          // straight highway
+  return 0.75                                  // residential
 }
 
-// Check if any other car is too close ahead
 function hasCarAhead(car: TrafficCar): boolean {
   for (const other of cars) {
     if (other.id === car.id || !other.active || other.routePending) continue
@@ -198,8 +186,6 @@ function hasCarAhead(car: TrafficCar): boolean {
     const dLng = other.lng - car.lng
     const dist = Math.sqrt(dLat * dLat + dLng * dLng)
     if (dist > FOLLOWING_DISTANCE) continue
-
-    // Check if the other car is roughly ahead of us (within +-90 deg of heading)
     const angleToOther = Math.atan2(dLng, dLat)
     let headingDiff = Math.abs(angleToOther - car.heading)
     if (headingDiff > Math.PI) headingDiff = 2 * Math.PI - headingDiff
@@ -208,7 +194,17 @@ function hasCarAhead(car: TrafficCar): boolean {
   return false
 }
 
-// ----- Public API -----
+/** Check if car is roughly inside the extended viewport */
+function isInView(lat: number, lng: number, margin: number = 0.005): boolean {
+  return (
+    lat >= viewBounds.south - margin &&
+    lat <= viewBounds.north + margin &&
+    lng >= viewBounds.west - margin &&
+    lng <= viewBounds.east + margin
+  )
+}
+
+// ---- Public API ----
 
 export function updateViewBounds(bounds: { north: number; south: number; east: number; west: number }) {
   viewBounds = bounds
@@ -218,24 +214,20 @@ export function startTraffic() {
   isActive = true
   cars.length = 0
   nextCarId = 0
-  pendingRouteFetches = 0
+  pendingFetches = 0
 
-  // Seed initial batch -- routes fetched async
+  // Seed cars spread across viewport -- routes fetched async with staggering
   for (let i = 0; i < TARGET_CARS; i++) {
-    const car = createCar()
-    // Spread initial cars across the viewport (not just edges)
-    car.lat = viewBounds.south + Math.random() * (viewBounds.north - viewBounds.south)
-    car.lng = viewBounds.west + Math.random() * (viewBounds.east - viewBounds.west)
+    const car = createCarShell()
     cars.push(car)
   }
 
-  // Stagger route fetches to avoid hammering OSRM
   let delay = 0
   for (const car of cars) {
     setTimeout(() => {
       if (isActive && car.active) assignRoute(car)
     }, delay)
-    delay += 200 // 200ms between fetches
+    delay += 150
   }
 }
 
@@ -249,25 +241,46 @@ export function tickTraffic() {
 
   for (const car of cars) {
     if (!car.active || car.routePending) continue
+    if (car.routeCoords.length < 2) { car.active = false; continue }
 
-    // No route or finished route -> deactivate
-    if (car.routeCoords.length < 2 || car.routeIndex >= car.routeCoords.length - 1) {
-      car.active = false
+    // ---- Approaching end of route: seamless path refresh ----
+    const remaining = car.routeCoords.length - 1 - car.routeIndex
+    
+    // Pre-fetch next route when ~30% remaining
+    if (remaining < car.routeCoords.length * 0.3 && !car.nextRoute && !car.nextRoutePending) {
+      prefetchNextRoute(car)
+    }
+
+    // At end of route: switch to next route seamlessly or deactivate
+    if (car.routeIndex >= car.routeCoords.length - 2) {
+      if (car.nextRoute && car.nextRoute.length >= 3) {
+        // Seamless continuation
+        car.routeCoords = car.nextRoute
+        car.routeIndex = 0
+        car.nextRoute = null
+        car.nextRoutePending = false
+        car.lat = car.routeCoords[0].lat
+        car.lng = car.routeCoords[0].lng
+        continue
+      } else if (!car.nextRoutePending) {
+        // No next route ready and not fetching -- deactivate
+        car.active = false
+        continue
+      }
+      // Still waiting for next route -- just stop at end
       continue
     }
 
-    // Handle stopped (traffic light / intersection)
+    // ---- Stopped at red light ----
     if (car.stoppedTicks > 0) {
       car.stoppedTicks--
       continue
     }
 
-    // Check following distance
-    if (hasCarAhead(car)) {
-      continue // Don't move, wait for car ahead to clear
-    }
+    // ---- Collision avoidance ----
+    if (hasCarAhead(car)) continue
 
-    // Road speed based on geometry
+    // ---- Road speed ----
     const idx = Math.floor(car.routeIndex)
     const angleDiff = getAngleChange(car.routeCoords, idx)
     const curr = car.routeCoords[idx]
@@ -275,21 +288,20 @@ export function tickTraffic() {
     const segLen = Math.sqrt((nextPt.lat - curr.lat) ** 2 + (nextPt.lng - curr.lng) ** 2)
     const roadFactor = roadSpeedFactor(angleDiff, segLen)
 
-    // Intersection stop: sharp turns have a chance to trigger a stop
-    if (angleDiff > Math.PI / 4 && car.stoppedTicks === 0 && Math.random() < 0.12) {
-      car.stoppedTicks = INTERSECTION_STOP_TICKS_MIN + Math.floor(Math.random() * (INTERSECTION_STOP_TICKS_MAX - INTERSECTION_STOP_TICKS_MIN))
+    // ---- Traffic light at junctions ----
+    // Sharp turns with high probability of stopping (simulates red/green lights)
+    if (angleDiff > Math.PI / 4 && Math.random() < 0.20) {
+      car.stoppedTicks = RED_LIGHT_MIN + Math.floor(Math.random() * (RED_LIGHT_MAX - RED_LIGHT_MIN))
       continue
     }
 
-    // Braking near end of route
-    const remaining = car.routeCoords.length - 1 - car.routeIndex
-    const brakeFactor = remaining < 10 ? 0.3 + (remaining / 10) * 0.7 : 1.0
+    // ---- Braking near end ----
+    const brakeFactor = remaining < 8 ? 0.4 + (remaining / 8) * 0.6 : 1.0
 
-    // Move along route
+    // ---- Move ----
     const move = car.speed * roadFactor * brakeFactor * (0.97 + Math.random() * 0.06)
     const newIndex = Math.min(car.routeIndex + move, car.routeCoords.length - 1)
 
-    // Interpolate position
     const fi = Math.floor(newIndex)
     const ni = Math.min(fi + 1, car.routeCoords.length - 1)
     const frac = newIndex - fi
@@ -302,22 +314,23 @@ export function tickTraffic() {
     car.heading = Math.atan2(p1.lng - p0.lng, p1.lat - p0.lat)
   }
 
-  // Remove finished/inactive cars
+  // ---- Cleanup: remove inactive or far-out-of-view cars ----
   for (let i = cars.length - 1; i >= 0; i--) {
-    if (!cars[i].active) {
+    const c = cars[i]
+    if (!c.active || (!c.routePending && !isInView(c.lat, c.lng, 0.01))) {
       cars.splice(i, 1)
     }
   }
 
-  // Spawn replacements (throttled by pending fetches)
-  while (cars.length < TARGET_CARS && pendingRouteFetches < ROUTE_FETCH_CONCURRENCY) {
-    const car = createCar()
+  // ---- Spawn replacements ----
+  while (cars.length < TARGET_CARS && pendingFetches < MAX_PENDING_FETCHES) {
+    const car = createCarShell()
     cars.push(car)
     assignRoute(car)
   }
 }
 
-/** Get all active cars for rendering (routes are NOT exposed) */
+/** Get all active, routed cars for rendering */
 export function getCars(): ReadonlyArray<TrafficCar> {
   return cars.filter(c => c.active && !c.routePending && c.routeCoords.length >= 2)
 }
@@ -325,23 +338,17 @@ export function getCars(): ReadonlyArray<TrafficCar> {
 /**
  * Traffic density at a position (0.0 to 1.0).
  * Counts nearby routed NPC cars within ~200m radius.
- * Used by game-store to slow emergency vehicles.
  */
 export function getTrafficDensity(lat: number, lng: number): number {
   if (!isActive) return 0
-
-  const radius = 0.002 // ~200m
+  const radius = 0.002
   let count = 0
-
   for (const car of cars) {
     if (!car.active || car.routePending) continue
     const dLat = car.lat - lat
     const dLng = car.lng - lng
     if (Math.abs(dLat) > radius || Math.abs(dLng) > radius) continue
-    const dist = Math.sqrt(dLat * dLat + dLng * dLng)
-    if (dist < radius) count++
+    if (Math.sqrt(dLat * dLat + dLng * dLng) < radius) count++
   }
-
-  // 0 cars = 0.0, 8+ cars nearby = 1.0
   return Math.min(1.0, count / 8)
 }
