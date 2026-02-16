@@ -55,6 +55,481 @@
 .vehicle-road-authority { background-color: #ddaa22 !important; }
 .vehicle-morgue { background-color: #888888 !important; }
 
+/* --- Vehicle dots and emergency lights --- */
+.vehicle-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emergency-lights {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: emergencyFlash 0.6s ease-in-out infinite;
+}
+
+.emergency-lights-blue {
+  animation: emergencyFlashBlue 0.6s ease-in-out infinite;
+}
+
+.emergency-lights-orange {
+  animation: emergencyFlashOrange 0.6s ease-in-out infinite;
+}
+
+.emergency-lights::before,
+.emergency-lights::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  top: 2px;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.emergency-lights-blue::before {
+  left: 1px;
+  background: radial-gradient(circle at center, #0080ff, rgba(0,128,255,0.3) 70%);
+  animation: lightPulseLeft 0.3s ease-in-out infinite;
+  filter: brightness(1.5);
+}
+
+.emergency-lights-blue::after {
+  right: 1px;
+  background: radial-gradient(circle at center, #ff0000, rgba(255,0,0,0.3) 70%);
+  animation: lightPulseRight 0.3s ease-in-out infinite 0.15s;
+  filter: brightness(1.5);
+}
+
+.emergency-lights-orange::before {
+  left: 1px;
+  background: radial-gradient(circle at center, #ffaa00, rgba(255,170,0,0.3) 70%);
+  animation: lightPulseLeft 0.4s ease-in-out infinite;
+  filter: brightness(1.3);
+}
+
+.emergency-lights-orange::after {
+  right: 1px;
+  background: radial-gradient(circle at center, #ff6600, rgba(255,102,0,0.3) 70%);
+  animation: lightPulseRight 0.4s ease-in-out infinite 0.2s;
+  filter: brightness(1.3);
+}
+
+.working-indicator {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  border: 1px solid;
+  opacity: 0.7;
+  animation: workingPulse 2s ease-in-out infinite;
+}
+
+@keyframes emergencyFlashBlue {
+  0%, 100% { 
+    opacity: 1; 
+    filter: brightness(1.2) drop-shadow(0 0 6px rgba(0,128,255,0.8));
+  }
+  50% { 
+    opacity: 0.6; 
+    filter: brightness(0.8) drop-shadow(0 0 3px rgba(0,128,255,0.4));
+  }
+}
+
+@keyframes emergencyFlashOrange {
+  0%, 100% { 
+    opacity: 1; 
+    filter: brightness(1.2) drop-shadow(0 0 6px rgba(255,170,0,0.8));
+  }
+  50% { 
+    opacity: 0.6; 
+    filter: brightness(0.8) drop-shadow(0 0 3px rgba(255,170,0,0.4));
+  }
+}
+
+@keyframes lightPulseLeft {
+  0%, 100% { 
+    opacity: 1; 
+    transform: scale(1.5);
+  }
+  50% { 
+    opacity: 0.4; 
+    transform: scale(0.8);
+  }
+}
+
+@keyframes lightPulseRight {
+  0%, 100% { 
+    opacity: 1; 
+    transform: scale(1.5);
+  }
+  50% { 
+    opacity: 0.4; 
+    transform: scale(0.8);
+  }
+}
+
+@keyframes workingPulse {
+  0%, 100% { 
+    opacity: 0.7; 
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.3; 
+    transform: scale(1.3);
+  }
+}
+
+/* --- Mission scene animations --- */
+.mission-scene-container {
+  position: relative;
+  width: 44px;
+  height: 52px;
+  border: 2px solid;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Fire scene animations */
+.fire-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #2a1a1a 0%, #4a2c2a 100%);
+}
+
+.fire-building {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 16px;
+  background: #1a1a1a;
+  border-radius: 2px;
+}
+
+.fire-window {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: #ff6b35;
+  border-radius: 1px;
+}
+
+.fire-window-1 { top: 2px; left: 3px; }
+.fire-window-2 { top: 2px; right: 3px; }
+.fire-window-3 { top: 6px; left: 8px; }
+
+.fire-flame {
+  position: absolute;
+  width: 6px;
+  height: 8px;
+  background: radial-gradient(circle at center, #ffaa00, #ff6600);
+  border-radius: 50% 50% 50% 50% / 60% 40% 0%;
+  animation: fireFlicker 0.5s ease-in-out infinite;
+}
+
+.fire-flame-1 { bottom: 12px; left: 6px; animation-delay: 0s; }
+.fire-flame-2 { bottom: 14px; left: 12px; animation-delay: 0.2s; }
+.fire-flame-3 { bottom: 10px; right: 8px; animation-delay: 0.4s; }
+
+.fire-smoke {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: radial-gradient(circle at center, rgba(100, 100, 100, 0.6), transparent);
+  border-radius: 50%;
+  animation: smokeRise 3s ease-out infinite;
+}
+
+.fire-smoke-1 { bottom: 16px; left: 4px; animation-delay: 0.5s; }
+.fire-smoke-2 { bottom: 18px; right: 6px; animation-delay: 1s; }
+
+/* Accident scene animations */
+.accident-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+}
+
+.accident-car {
+  position: absolute;
+  width: 12px;
+  height: 6px;
+  background: #6b7280;
+  border-radius: 2px;
+  transform: rotate(15deg);
+}
+
+.accident-car-1 { bottom: 10px; left: 8px; transform: rotate(25deg); }
+.accident-car-2 { bottom: 12px; right: 6px; transform: rotate(-10deg); }
+
+.accident-debris {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: #a16207;
+  border-radius: 1px;
+}
+
+.accident-debris-1 { bottom: 8px; left: 10px; }
+.accident-debris-2 { bottom: 6px; right: 12px; }
+
+.accident-glass {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  animation: glassShatter 4s ease-out infinite;
+}
+
+.accident-glass-1 { bottom: 14px; left: 14px; animation-delay: 0s; }
+.accident-glass-2 { bottom: 16px; right: 16px; animation-delay: 1s; }
+
+/* Medical scene animations */
+.medical-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1e3a8a 0%, #065f46 100%);
+}
+
+.medical-heart {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  background: #dc2626;
+  border-radius: 50%;
+  animation: heartBeat 1s ease-in-out infinite;
+}
+
+.heart-beat {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: #ef4444;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+}
+
+.heart-beat-1 { animation-delay: 0s; }
+.heart-beat-2 { animation-delay: 0.5s; }
+
+.medical-pulse {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #ef4444;
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  animation: medicalPulse 2s ease-out infinite;
+}
+
+.medical-pulse-1 { top: -8px; left: -8px; animation-delay: 0s; }
+.medical-pulse-2 { top: -8px; right: -8px; animation-delay: 0.7s; }
+.medical-pulse-3 { bottom: -8px; left: 50%; transform: translateX(-50%); animation-delay: 1.4s; }
+
+/* Crime scene animations */
+.crime-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #4b5563 0%, #1f2937 100%);
+}
+
+.crime-building {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 16px;
+  background: #374151;
+  border-radius: 2px;
+}
+
+.crime-window {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: #1f2937;
+  border-radius: 1px;
+}
+
+.crime-window-broken {
+  top: 4px;
+  left: 7px;
+  width: 8px;
+  height: 4px;
+  background: linear-gradient(45deg, transparent 40%, #1f2937 40%, transparent 60%);
+}
+
+.crime-shards {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 1px;
+  animation: shardFall 3s ease-in infinite;
+}
+
+.crime-shard-1 { bottom: 12px; left: 6px; animation-delay: 0s; }
+.crime-shard-2 { bottom: 10px; left: 12px; animation-delay: 0.5s; }
+.crime-shard-3 { bottom: 14px; right: 8px; animation-delay: 1s; }
+
+.crime-tool {
+  position: absolute;
+  bottom: 16px;
+  right: 6px;
+  width: 8px;
+  height: 3px;
+  background: #a16207;
+  border-radius: 1px;
+  transform: rotate(-30deg);
+}
+
+/* Infrastructure scene animations */
+.infrastructure-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #6b7280 0%, #374151 100%);
+}
+
+.infra-pole {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 20px;
+  background: #4b5563;
+  border-radius: 2px;
+}
+
+.infra-pole-broken {
+  top: 2px;
+  height: 10px;
+  background: linear-gradient(0deg, #4b5563 0%, #a16207 50%, #4b5563 100%);
+}
+
+.infra-wire {
+  position: absolute;
+  width: 2px;
+  height: 12px;
+  background: #1f2937;
+  transform-origin: top;
+}
+
+.infra-wire-1 { bottom: 26px; left: 50%; transform: translateX(-50%) rotate(-15deg); }
+.infra-wire-2 { bottom: 24px; right: 50%; transform: translateX(50%) rotate(10deg); }
+
+.infra-sparks {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: radial-gradient(circle at center, #fbbf24, #f59e0b);
+  border-radius: 50%;
+  animation: sparkFlash 0.8s ease-in-out infinite;
+}
+
+.infra-spark-1 { bottom: 20px; left: 8px; animation-delay: 0s; }
+.infra-spark-2 { bottom: 22px; left: 12px; animation-delay: 0.3s; }
+.infra-spark-3 { bottom: 18px; right: 10px; animation-delay: 0.6s; }
+
+/* Default scene */
+.default-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #6b7280 0%, #374151 100%);
+}
+
+.default-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  background: #fbbf24;
+  border-radius: 50%;
+  animation: defaultPulse 2s ease-in-out infinite;
+}
+
+/* Scene animations */
+@keyframes fireFlicker {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.8); }
+}
+
+@keyframes smokeRise {
+  0% { opacity: 0.8; transform: translateY(0) scale(0.5); }
+  100% { opacity: 0; transform: translateY(-10px) scale(1.5); }
+}
+
+@keyframes glassShatter {
+  0% { opacity: 1; transform: scale(1) rotate(0deg); }
+  50% { opacity: 0.3; transform: scale(0.5) rotate(180deg); }
+  100% { opacity: 0; transform: scale(0.2) rotate(360deg); }
+}
+
+@keyframes heartBeat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+@keyframes medicalPulse {
+  0% { opacity: 0.8; transform: scale(0.8); }
+  50% { opacity: 0.2; transform: scale(1.2); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+
+@keyframes shardFall {
+  0% { opacity: 1; transform: translateY(0) rotate(0deg); }
+  100% { opacity: 0; transform: translateY(8px) rotate(45deg); }
+}
+
+@keyframes sparkFlash {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.6); }
+}
+
+@keyframes defaultPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+.scene-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
 /* --- Kjøretøy og ruter --- */
 .vehicle-route-animated {
   stroke-dasharray: 8, 12;

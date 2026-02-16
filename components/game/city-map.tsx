@@ -49,41 +49,34 @@ const BUILDING_SVG_ICONS: Record<string, string> = {
   "morgue": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>`,
 }
 
-// Get vehicle icon based on building type
-function getVehicleIcon(buildingType: string, color: string, isWorking: boolean) {
-  const iconProps = {
-    size: 20,
-    color: color,
-    style: {
-      filter: isWorking ? 'drop-shadow(0 0 8px ' + color + ')' : 'drop-shadow(0 0 3px rgba(0,0,0,0.3))',
-      transform: 'translate(-50%, -50%)'
-    }
+// Get vehicle dot/circle icon based on building type and status
+function getVehicleIcon(buildingType: string, color: string, status: string) {
+  const isDispatched = status === "dispatched"
+  const isWorking = status === "working"
+  const isReturning = status === "returning"
+  
+  // Base dot size and color
+  const dotSize = 6
+  const hasEmergencyLights = isDispatched || (isWorking && buildingType !== "morgue")
+  
+  // Determine light color based on building type
+  let lightColor = "#0080ff" // default blue
+  if (buildingType === "road-authority") {
+    lightColor = "#ff8800" // orange/yellow for tow trucks
+  } else if (buildingType === "fire-station") {
+    lightColor = "#ff0000" // red for fire trucks
+  } else if (buildingType === "police-station") {
+    lightColor = "#0080ff" // blue for police
+  } else if (buildingType === "hospital" || buildingType === "ambulance-station" || buildingType === "medical-clinic") {
+    lightColor = "#ff0000" // red for medical
   }
-
-  let iconComponent
-  switch (buildingType) {
-    case "fire-station":
-      iconComponent = <PiFireTruckFill {...iconProps} />
-      break
-    case "police-station":
-      iconComponent = <FaShieldAlt {...iconProps} />
-      break
-    case "hospital":
-    case "ambulance-station":
-    case "medical-clinic":
-      iconComponent = <GiAmbulance {...iconProps} />
-      break
-    case "road-authority":
-      iconComponent = <GiTowTruck {...iconProps} />
-      break
-    case "morgue":
-      iconComponent = <FaTruck {...iconProps} />
-      break
-    default:
-      iconComponent = <FaTruck {...iconProps} />
-  }
-
-  return renderToString(iconComponent)
+  
+  const lightClass = buildingType === "road-authority" ? "emergency-lights-orange" : "emergency-lights-blue"
+  
+  return `<div class="vehicle-dot" style="width: ${dotSize}px; height: ${dotSize}px; background-color: ${color}; box-shadow: 0 0 3px rgba(0,0,0,0.3);">
+    ${hasEmergencyLights ? `<div class="emergency-lights ${lightClass}" style="--light-color: ${lightColor};"></div>` : ''}
+    ${isWorking ? `<div class="working-indicator" style="background: ${color};"></div>` : ''}
+  </div>`
 }
 
 function buildingIconHtml(color: string, level: number, size: number, buildingType: string) {
@@ -116,49 +109,24 @@ function missionIconZoomedIn(missionType: string, missionColor: string, isPendin
   const barColor = urgencyRatio > 0.5 ? "#22c55e" : urgencyRatio > 0.25 ? "#f59e0b" : "#ef4444"
   let sceneHtml = ""
 
-  switch (missionType) {
-    case "fire":
-      sceneHtml = `<div class="mission-scene mission-fire">
-        <div class="fire-flame f1"></div>
-        <div class="fire-flame f2"></div>
-        <div class="fire-flame f3"></div>
-        <div class="fire-ember e1"></div>
-        <div class="fire-ember e2"></div>
-      </div>`
-      break
-    case "traffic-accident":
-      sceneHtml = `<div class="mission-scene mission-accident">
-        <div class="accident-car c1"></div>
-        <div class="accident-car c2"></div>
-        <div class="accident-flash"></div>
-        <div class="hazard-light h1"></div>
-        <div class="hazard-light h2"></div>
-      </div>`
-      break
-    case "medical-emergency":
-      sceneHtml = `<div class="mission-scene mission-medical">
-        <div class="medical-cross"></div>
-        <div class="heartbeat-line">
-          <div class="heartbeat-pulse"></div>
-        </div>
-      </div>`
-      break
-    case "crime":
-      sceneHtml = `<div class="mission-scene mission-crime">
-        <div class="police-light red"></div>
-        <div class="police-light blue"></div>
-        <div class="crime-shield"></div>
-      </div>`
-      break
-    case "infrastructure":
-      sceneHtml = `<div class="mission-scene mission-infra">
-        <div class="infra-warning"></div>
-        <div class="infra-gear"></div>
-        <div class="infra-stripe"></div>
-      </div>`
-      break
-    default:
-      sceneHtml = `<div class="mission-scene"><div class="mission-alert-dot" style="background:${missionColor};"></div></div>`
+  if (missionType === "fire") {
+    // Fire scene with animated flames
+    sceneHtml = `<div class="fire-scene"><div class="fire-building"><div class="fire-window fire-window-1"></div><div class="fire-window fire-window-2"></div><div class="fire-window fire-window-3"></div></div><div class="fire-flame fire-flame-1"></div><div class="fire-flame fire-flame-2"></div><div class="fire-flame fire-flame-3"></div><div class="fire-smoke fire-smoke-1"></div><div class="fire-smoke fire-smoke-2"></div></div>`
+  } else if (missionType === "traffic-accident") {
+    // Traffic accident with crashed cars
+    sceneHtml = `<div class="accident-scene"><div class="accident-car accident-car-1"></div><div class="accident-car accident-car-2"></div><div class="accident-debris accident-debris-1"></div><div class="accident-debris accident-debris-2"></div><div class="accident-glass accident-glass-1"></div><div class="accident-glass accident-glass-2"></div></div>`
+  } else if (missionType === "medical-emergency") {
+    // Medical emergency with heart and pulse
+    sceneHtml = `<div class="medical-scene"><div class="medical-heart"><div class="heart-beat heart-beat-1"></div><div class="heart-beat heart-beat-2"></div></div><div class="medical-pulse medical-pulse-1"></div><div class="medical-pulse medical-pulse-2"></div><div class="medical-pulse medical-pulse-3"></div></div>`
+  } else if (missionType === "crime") {
+    // Crime scene with broken window and crowbar
+    sceneHtml = `<div class="crime-scene"><div class="crime-building"><div class="crime-window crime-window-broken"></div><div class="crime-shards crime-shard-1"></div><div class="crime-shards crime-shard-2"></div><div class="crime-shards crime-shard-3"></div></div><div class="crime-tool crime-crowbar"></div></div>`
+  } else if (missionType === "infrastructure") {
+    // Infrastructure damage with broken elements
+    sceneHtml = `<div class="infrastructure-scene"><div class="infra-pole infra-pole-broken"></div><div class="infra-wire infra-wire-1"></div><div class="infra-wire infra-wire-2"></div><div class="infra-sparks infra-spark-1"></div><div class="infra-sparks infra-spark-2"></div><div class="infra-sparks infra-spark-3"></div></div>`
+  } else {
+    // Default fallback
+    sceneHtml = `<div class="default-scene"><div class="default-icon default-pulse"></div></div>`
   }
 
   return `<div class="mission-scene-container" style="border-color:${missionColor};">
@@ -390,13 +358,11 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
         }
       }
 
-      const vehicleIconHtml = isWorking
-        ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
-        : getVehicleIcon(bType, vehicleColor, false)
+      const vehicleIconHtml = getVehicleIcon(bType, vehicleColor, v.status)
       const vehicleIcon = L.divIcon({
         className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''}`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
         html: vehicleIconHtml
       })
 

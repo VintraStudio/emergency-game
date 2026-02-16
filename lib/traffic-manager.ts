@@ -13,6 +13,8 @@
  * This module is standalone (not in React state) to avoid re-renders.
  */
 
+import { getRouteQueued } from "./route-service"
+
 export interface TrafficCar {
   id: number
   lat: number
@@ -63,17 +65,33 @@ let pendingRouteFetches = 0
 
 async function fetchCarRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ lat: number; lng: number }[]> {
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
-    const res = await fetch(url)
-    if (!res.ok) return []
-    const data = await res.json()
-    if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates?.length >= 2) {
-      return data.routes[0].geometry.coordinates.map(([lng, lat]: [number, number]) => ({ lat, lng }))
-    }
-  } catch {
-    // Silently fail -- car will be recycled
+    return await getRouteQueued(from, to)
+  } catch (error) {
+    console.warn("Traffic route fetch failed, using fallback:", error)
+    // Generate simple fallback route
+    return generateFallbackRoute(from, to)
   }
-  return []
+}
+
+// Simple fallback route generator
+function generateFallbackRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }): { lat: number; lng: number }[] {
+  const steps = 20
+  const points: { lat: number; lng: number }[] = []
+  
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    // Simple curved path
+    const midLat = (from.lat + to.lat) / 2
+    const midLng = (from.lng + to.lng) / 2
+    const curve = 0.0001 * Math.sin(t * Math.PI) // Small curve
+    
+    points.push({
+      lat: from.lat + (midLat - from.lat) * 2 * t + curve,
+      lng: from.lng + (midLng - from.lng) * 2 * t
+    })
+  }
+  
+  return points
 }
 
 // Generate a random start point at the edge of the viewport (or slightly outside)
@@ -118,7 +136,7 @@ function createCar(): TrafficCar {
     lng: start.lng,
     routeCoords: [],
     routeIndex: 0,
-    speed: 0.4 + Math.random() * 0.3, // route-points per tick (slow NPC speed)
+    speed: (0.4 + Math.random() * 0.3) * 0.5, // route-points per tick (50% slower NPC speed)
     heading: 0,
     color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)],
     radius: 2, // tiny dots
