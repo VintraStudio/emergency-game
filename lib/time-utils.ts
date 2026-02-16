@@ -30,13 +30,23 @@ export function formatGameDateTime(timestamp: number): string {
   })
 }
 
-export function formatMissionTime(minutes: number): string {
-  if (minutes <= 0) return "0 min"
-  if (minutes < 60) return `${minutes} min`
+export function formatMissionTime(totalMinutes: number): string {
+  if (totalMinutes <= 0) return "0s"
   
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  return mins > 0 ? `${hours}t ${mins}min` : `${hours}t`
+  // Convert to total seconds for more precise calculation
+  const totalSeconds = Math.round(totalMinutes * 60)
+  
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  
+  const parts: string[] = []
+  
+  if (hours > 0) parts.push(`${hours}t`)
+  if (minutes > 0) parts.push(`${minutes}m`)
+  if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`)
+  
+  return parts.join(" ")
 }
 
 export function getSpeedMultiplier(speed: 1 | 2 | 3): string {

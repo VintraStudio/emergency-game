@@ -13,6 +13,8 @@
  * This module is standalone (not in React state) to avoid re-renders.
  */
 
+import { getRouteQueued } from "./route-service"
+
 export interface TrafficCar {
   id: number
   lat: number
@@ -71,7 +73,8 @@ async function fetchCarRoute(
   } catch {
     // silent
   }
-  return []
+  
+  return points
 }
 
 // ---- Spawning helpers ----
