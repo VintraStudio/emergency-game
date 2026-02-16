@@ -366,6 +366,9 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
 
     vehiclesRef.current.forEach(v => {
       if (v.status === "idle") return
+      
+      // Show preparing vehicles as blinking at their station
+      const isPreparing = v.status === "preparing" as string
 
       // Look up the building this vehicle belongs to for color mapping
       const parentBuilding = buildings.find(b => b.id === v.buildingId)
@@ -394,7 +397,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
         ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
         : getVehicleIcon(bType, vehicleColor, false)
       const vehicleIcon = L.divIcon({
-        className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''}`,
+        className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''} ${isPreparing ? 'vehicle-preparing' : ''}`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
         html: vehicleIconHtml
@@ -459,23 +462,22 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const currentZoom = trafficZoomRef.current
       if (currentZoom < 15) return
 
-      // Tiny radius that scales slightly with zoom
-      const baseRadius = 2
-      const zoomBoost = Math.max(0, (currentZoom - 15) * 0.4)
+      // Very tiny dots that grow slightly with zoom
+      const baseRadius = 1.5
+      const zoomBoost = Math.max(0, (currentZoom - 15) * 0.5)
+      const r = baseRadius + zoomBoost
 
       const cars = getCars()
       for (const car of cars) {
         const point = map.latLngToContainerPoint([car.lat, car.lng])
         
         // Skip cars outside visible area
-        if (point.x < -10 || point.x > canvas.width + 10 || point.y < -10 || point.y > canvas.height + 10) continue
-
-        const r = baseRadius + zoomBoost
+        if (point.x < -8 || point.x > canvas.width + 8 || point.y < -8 || point.y > canvas.height + 8) continue
 
         // Tiny shadow
         ctx.beginPath()
-        ctx.arc(point.x + 0.5, point.y + 0.5, r, 0, Math.PI * 2)
-        ctx.fillStyle = "rgba(0,0,0,0.3)"
+        ctx.arc(point.x + 0.4, point.y + 0.4, r, 0, Math.PI * 2)
+        ctx.fillStyle = "rgba(0,0,0,0.25)"
         ctx.fill()
         
         // Car dot

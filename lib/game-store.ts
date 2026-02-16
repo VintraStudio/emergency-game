@@ -606,46 +606,69 @@ export function useGameActions() {
     // Fetch real OSRM road routes asynchronously; once resolved, set status to "dispatched"
     // and start moving with the actual road geometry ONLY when route is ready
     for (const veh of availableVehicles) {
+      console.log("[v0] Fetching OSRM route for vehicle", veh.id, "from", veh.position, "to", mission.position)
       const routePromise = fetchRoute(veh.position, mission.position).then((routeCoords) => {
+        console.log("[v0] Route received for", veh.id, "with", routeCoords.length, "coords")
         // Read current vehicle state to preserve progress
         const currentVeh = state.vehicles.find((v) => v.id === veh.id)
-        if (!currentVeh || currentVeh.status !== "preparing") {
+        if (!currentVeh) {
+          console.log("[v0] Vehicle", veh.id, "no longer exists in state, skipping route apply")
+          pendingRoutes.delete(veh.id)
+          return routeCoords
+        }
+        
+        // Accept route if vehicle is preparing OR dispatched-without-route
+        if (currentVeh.status !== "preparing" && !(currentVeh.status === "dispatched" && currentVeh.routeCoords.length === 0)) {
+          console.log("[v0] Vehicle", veh.id, "status is", currentVeh.status, "skipping route")
           pendingRoutes.delete(veh.id)
           return routeCoords
         }
 
+        console.log("[v0] Applying route to vehicle", veh.id, "status was:", currentVeh.status)
         // Update vehicle with real route and change status to "dispatched"
-        // Only now can the vehicle start moving
+        const updatedVehicles = state.vehicles.map((v) =>
+          v.id === veh.id
+            ? { 
+                ...v, 
+                status: "dispatched" as VehicleStatus,
+                routeCoords: routeCoords, 
+                routeIndex: 0,
+                preparationTimeRemaining: undefined
+              }
+            : v,
+        )
         state = {
           ...state,
-          vehicles: state.vehicles.map((v) =>
-            v.id === veh.id
-              ? { 
-                  ...v, 
-                  status: "dispatched" as VehicleStatus,
-                  routeCoords: routeCoords, 
-                  routeIndex: 0,
-                  preparationTimeRemaining: undefined
-                }
-              : v,
-          ),
-          buildings: syncBuildingsWithVehicles(state.vehicles.map((v) =>
-            v.id === veh.id
-              ? { 
-                  ...v, 
-                  status: "dispatched" as VehicleStatus,
-                  routeCoords: routeCoords, 
-                  routeIndex: 0,
-                  preparationTimeRemaining: undefined
-                }
-              : v,
-          )),
+          vehicles: updatedVehicles,
+          buildings: syncBuildingsWithVehicles(updatedVehicles),
         }
         pendingRoutes.delete(veh.id)
         emit()
         
-        pendingRoutes.delete(veh.id)
         return routeCoords
+      }).catch((err) => {
+        console.warn("[v0] Route fetch error for vehicle", veh.id, err)
+        // Apply fallback interpolated route so the vehicle still moves
+        const fallback = interpolateRoute(veh.position, mission.position)
+        const updatedVehicles = state.vehicles.map((v) =>
+          v.id === veh.id
+            ? { 
+                ...v, 
+                status: "dispatched" as VehicleStatus,
+                routeCoords: fallback, 
+                routeIndex: 0,
+                preparationTimeRemaining: undefined
+              }
+            : v,
+        )
+        state = {
+          ...state,
+          vehicles: updatedVehicles,
+          buildings: syncBuildingsWithVehicles(updatedVehicles),
+        }
+        pendingRoutes.delete(veh.id)
+        emit()
+        return fallback
       })
       pendingRoutes.set(veh.id, routePromise)
     }
@@ -682,11 +705,22 @@ export function useGameActions() {
       if (v.status === "preparing") {
         // Handle preparation countdown - do NOT move until OSRM route is ready
         const newPrepTime = (v.preparationTimeRemaining || 0) - gameMinutesDelta
-        if (newPrepTime <= 0) {
-          // Preparation time is up, but we wait for OSRM route before dispatching
-          return { ...v, preparationTimeRemaining: 0 }
+        if (newPrepTime <= -5) {
+          // Route fetch is taking too long (5+ extra game-minutes), apply fallback
+          const mission = state.missions.find((m) => m.id === v.missionId)
+          if (mission) {
+            console.log("[v0] Preparing timeout for", v.id, "- using fallback route")
+            const fallback = interpolateRoute(v.position, mission.position)
+            return {
+              ...v,
+              status: "dispatched" as VehicleStatus,
+              routeCoords: fallback,
+              routeIndex: 0,
+              preparationTimeRemaining: undefined,
+            }
+          }
         }
-        return { ...v, preparationTimeRemaining: newPrepTime }
+        return { ...v, preparationTimeRemaining: Math.min(newPrepTime, 0) }
       }
       if (v.status === "dispatched") {
         // Only move if we have a valid OSRM route

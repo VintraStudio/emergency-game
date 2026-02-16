@@ -12,7 +12,7 @@ export function GameLoop() {
 
     const id = setInterval(() => {
       tick()
-    }, 100) // 200ms for jevnere bevegelse
+    }, 200) // 200ms for smooth relaxed movement
 
     return () => clearInterval(id)
   }, [isPaused, gameOver, tick]) // ✅ IKKE actions
