@@ -16,6 +16,8 @@ import type {
 import { BUILDING_CONFIGS, MISSION_CONFIGS } from "./game-types"
 import { getTrafficDensity, tickTraffic } from "./traffic-manager"
 import { getRouteQueued } from "./route-service"
+import { streetAwareRoute } from "./road-network"
+import { updateNPCTraffic } from "./npc-traffic"
 
 let nextId = 1
 function genId(prefix: string) {
@@ -346,9 +348,9 @@ const dispatchVehicle = (missionId: string) => {
     ),
   }
 
-  // Start vehicles immediately on fallback routes, upgrade to OSRM in background
+  // Start vehicles immediately on street-aware routes, upgrade to OSRM in background
   for (const veh of availableVehicles) {
-    const fb = fallbackRoute(veh.position, mission.position)
+    const streetRoute = streetAwareRoute(veh.position, mission.position)
 
     const nextVehicles = state.vehicles.map((v) =>
       v.id === veh.id
@@ -356,7 +358,7 @@ const dispatchVehicle = (missionId: string) => {
             ...v,
             status: "dispatched" as VehicleStatus,
             missionId: mission.id,
-            routeCoords: fb,
+            routeCoords: streetRoute,
             routeIndex: 0,
           }
         : v
@@ -389,8 +391,8 @@ const dispatchVehicle = (missionId: string) => {
         return osrmRoute
       })
       .catch((err) => {
-        console.log(`OSRM failed for vehicle ${veh.id}, keeping fallback route:`, err)
-        return fb
+        console.log(`OSRM failed for vehicle ${veh.id}, keeping street-aware route:`, err)
+        return streetRoute
       })
 
     pendingRoutes.set(veh.id, p)
@@ -407,8 +409,9 @@ const tick = () => {
   const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
   const newGameTime = state.gameTime + gameMinutesDelta * 60000
 
-  // Optional: advance traffic simulation
+  // Update traffic systems
   tickTraffic(gameMinutesDelta)
+  updateNPCTraffic(realDeltaMs / 1000)
 
   let newMoney = state.money
   let completed = state.missionsCompleted
@@ -449,8 +452,8 @@ const tick = () => {
       if (remaining <= 0) {
         const building = state.buildings.find((b) => b.id === v.buildingId)
         if (building) {
-          // Start returning immediately via fallback, then upgrade in background
-          const fallbackReturn = fallbackRoute(v.position, building.position)
+          // Start returning immediately via street-aware route, then upgrade with OSRM
+          const returnRoute = streetAwareRoute(v.position, building.position)
 
           const p = getRouteQueued(v.position, building.position).then((routeCoords) => {
             applyRouteToVehicle(v.id, routeCoords)
@@ -462,7 +465,7 @@ const tick = () => {
             ...v,
             status: "returning" as VehicleStatus,
             workTimeRemaining: 0,
-            routeCoords: fallbackReturn,
+            routeCoords: returnRoute,
             routeIndex: 0,
           }
         }
@@ -531,7 +534,7 @@ const tick = () => {
           if (failedVehIds.has(v.id) && v.status !== "idle") {
             const building = state.buildings.find((b) => b.id === v.buildingId)
             if (building && (v.status === "dispatched" || v.status === "working")) {
-              const fallbackReturn = fallbackRoute(v.position, building.position)
+              const returnRoute = streetAwareRoute(v.position, building.position)
 
               const p = getRouteQueued(v.position, building.position).then((routeCoords) => {
                 applyRouteToVehicle(v.id, routeCoords)
@@ -542,7 +545,7 @@ const tick = () => {
               return {
                 ...v,
                 status: "returning" as VehicleStatus,
-                routeCoords: fallbackReturn,
+                routeCoords: returnRoute,
                 routeIndex: 0,
                 workTimeRemaining: 0,
               }

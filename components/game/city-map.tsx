@@ -19,6 +19,7 @@ import { FaHeartbeat } from "react-icons/fa"
 import { FaTruck } from "react-icons/fa"
 import { renderToString } from "react-dom/server"
 import { getCars, updateViewBounds, startTraffic, stopTraffic } from "@/lib/traffic-manager"
+import { updateNPCTraffic, updateNPCViewportBounds, getNPCVehiclesInViewport } from "@/lib/npc-traffic"
 import "leaflet/dist/leaflet.css"
 import "./city-map.css"
 
@@ -263,6 +264,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
           west: b.getWest(),
         }
         updateViewBounds(bounds)
+        updateNPCViewportBounds(bounds)
       })
 
       // Update traffic bounds on map move
@@ -275,6 +277,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
           west: b.getWest(),
         }
         updateViewBounds(bounds)
+        updateNPCViewportBounds(bounds)
       })
 
       // Initialize traffic system with current viewport
@@ -286,6 +289,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
         west: initialBounds.getWest(),
       }
       updateViewBounds(bounds)
+      updateNPCViewportBounds(bounds)
       startTraffic()
 
       mapRef.current = map
@@ -437,6 +441,9 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const r = baseRadius + zoomBoost
 
       const cars = getCars()
+      const npcVehicles = getNPCVehiclesInViewport()
+      
+      // Render player traffic
       for (const car of cars) {
         const point = map.latLngToContainerPoint([car.lat, car.lng])
         
@@ -453,6 +460,26 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
         ctx.beginPath()
         ctx.arc(point.x, point.y, r, 0, Math.PI * 2)
         ctx.fillStyle = car.color
+        ctx.fill()
+      }
+
+      // Render NPC traffic (slightly smaller, grayer)
+      for (const npc of npcVehicles) {
+        const point = map.latLngToContainerPoint([npc.position.lat, npc.position.lng])
+        
+        // Skip vehicles outside visible area
+        if (point.x < -6 || point.x > canvas.width + 6 || point.y < -6 || point.y > canvas.height + 6) continue
+
+        // Tiny shadow
+        ctx.beginPath()
+        ctx.arc(point.x + 0.2, point.y + 0.2, r * 0.7, 0, Math.PI * 2)
+        ctx.fillStyle = "rgba(0,0,0,0.15)"
+        ctx.fill()
+        
+        // NPC vehicle dot (slightly smaller and grayer)
+        ctx.beginPath()
+        ctx.arc(point.x, point.y, r * 0.7, 0, Math.PI * 2)
+        ctx.fillStyle = "#888888"
         ctx.fill()
       }
     }
