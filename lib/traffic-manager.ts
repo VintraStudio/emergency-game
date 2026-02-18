@@ -14,6 +14,8 @@
  */
 
 import { getRouteQueued } from "./route-service"
+import { getCachedRoute } from "./route-cache"
+import { streetAwareRoute } from "./road-network"
 
 export interface TrafficCar {
   id: number
@@ -61,20 +63,17 @@ async function fetchCarRoute(
   to: { lat: number; lng: number },
 ): Promise<{ lat: number; lng: number }[]> {
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
-    const res = await fetch(url)
-    if (!res.ok) return []
-    const data = await res.json()
-    if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates?.length >= 2) {
-      return data.routes[0].geometry.coordinates.map(
-        ([lng, lat]: [number, number]) => ({ lat, lng }),
-      )
+    // Try cached OSRM first
+    const cachedRoute = await getCachedRoute(from, to)
+    if (cachedRoute.length > 0) {
+      return cachedRoute
     }
-  } catch {
-    // silent
+  } catch (error) {
+    console.log("[v0] OSRM routing failed, using fallback")
   }
-  
-  return []
+
+  // Fallback to street-aware smooth curve
+  return streetAwareRoute(from, to)
 }
 
 // ---- Spawning helpers ----
