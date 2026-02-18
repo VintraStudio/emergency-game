@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState } from "react"
 import type LType from "leaflet"
 import type {
   Building,
@@ -15,10 +15,10 @@ import { GiTowTruck } from "react-icons/gi"
 import { PiFireTruckFill } from "react-icons/pi"
 import { GiAmbulance } from "react-icons/gi"
 import { FaShieldAlt } from "react-icons/fa"
-import { FaHeartbeat } from "react-icons/fa"
 import { FaTruck } from "react-icons/fa"
 import { renderToString } from "react-dom/server"
 import { getCars, updateViewBounds, startTraffic, stopTraffic } from "@/lib/traffic-manager"
+import { useGameState } from "@/lib/game-store"
 import "leaflet/dist/leaflet.css"
 import "./city-map.css"
 
@@ -49,30 +49,43 @@ const BUILDING_SVG_ICONS: Record<string, string> = {
   "morgue": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>`,
 }
 
-// Get vehicle icon based on building type - now circles like NPCs
+/**
+ * ✅ FIXED VEHICLE ICON:
+ * - Wrapper is 24x24 (matches Leaflet iconSize)
+ * - Dot is centered INSIDE wrapper (no double translate bug)
+ * - Lightbar is placed ABOVE dot, not in center
+ * - Road authority uses amber alternating strobes
+ */
 function getVehicleIcon(buildingType: string, color: string, isWorking: boolean) {
-  const isOnMission = !isWorking // Working = parked at mission, not on mission
-  
-  const baseSize = 8 // Base radius like NPC cars
-  const zoomBoost = 2 // Slightly larger than NPCs for visibility
-  
-  const neonEffect = isOnMission ? `
-    filter: drop-shadow(0 0 12px ${color}) drop-shadow(0 0 8px ${color}) drop-shadow(0 0 4px ${color});
-    animation: neonPulse 1.5s ease-in-out infinite alternate;
-  ` : `filter: drop-shadow(0 0 3px rgba(0,0,0,0.3));`
-  
+  const isOnMission = !isWorking
+  const isRoad = buildingType === "road-authority"
+
+  const dotPx = 6
+
+  const lightsHtml = !isOnMission
+    ? ""
+    : isRoad
+      ? `
+        <div class="vehicle-lightbar vehicle-lightbar-amber">
+          <span class="vehicle-strobe amber a1"></span>
+          <span class="vehicle-strobe amber a2"></span>
+        </div>
+      `
+      : `
+        <div class="vehicle-lightbar vehicle-lightbar-rb">
+          <span class="vehicle-strobe red r1"></span>
+          <span class="vehicle-strobe blue b1"></span>
+        </div>
+      `
+
   return `
-    <div style="
-      width: ${(baseSize + zoomBoost) * 2}px;
-      height: ${(baseSize + zoomBoost) * 2}px;
-      border-radius: 50%;
-      background: ${color};
-      border: 2px solid rgba(0,0,0,0.3);
-      ${neonEffect}
-      transform: translate(-50%, -50%);
-      position: relative;
-    ">
-      ${isOnMission ? '<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.8);"></div>' : ''}
+    <div class="vehicle-icon">
+      <div class="vehicle-dot" style="
+        width:${dotPx}px;
+        height:${dotPx}px;
+        background:${color};
+      "></div>
+      ${lightsHtml}
     </div>
   `
 }
@@ -173,6 +186,9 @@ export function CityMap({
     return null
   }
 
+  const { isPaused } = useGameState()
+  const pausedRef = useRef(isPaused)
+  pausedRef.current = isPaused
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LType.Map | null>(null)
   const leafletRef = useRef<typeof LType | null>(null)
@@ -342,22 +358,47 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
   const vehiclesRef = useRef(vehicles)
   const prevVehiclesRef = useRef<string>("")
   
-  if (JSON.stringify(vehicles) !== prevVehiclesRef.current) {
+  // Only check structural changes (status, missionId, buildingId) - not position
+  const vehiclesKey = vehicles.map(v => `${v.id}:${v.status}:${v.missionId || ''}:${v.buildingId}`).join("|")
+  
+  if (vehiclesKey !== prevVehiclesRef.current) {
     vehiclesRef.current = vehicles
-    prevVehiclesRef.current = JSON.stringify(vehicles)
+    prevVehiclesRef.current = vehiclesKey
   }
+
+  // Store vehicle markers and routes to update without recreation
+  const vehicleMarkersRef = useRef<Map<string, LType.Marker>>(new Map())
+  const vehicleRoutesRef = useRef<Map<string, LType.Polyline>>(new Map())
+  const vehicleRouteDataRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     const { vehicles: vLayer, routes: rLayer } = layersRef.current
     const L = leafletRef.current
     if (!vLayer || !rLayer || !L || !ready) return
 
-    vLayer.clearLayers()
-    rLayer.clearLayers()
+    // Only recreate when structural changes occur
+    const currentVehicleIds = new Set(vehiclesRef.current.map(v => v.id))
+    const existingVehicleIds = new Set(vehicleMarkersRef.current.keys())
+    
+    // Remove vehicles that no longer exist
+    for (const id of existingVehicleIds) {
+      if (!currentVehicleIds.has(id)) {
+        const marker = vehicleMarkersRef.current.get(id)
+        const route = vehicleRoutesRef.current.get(id)
+        if (marker) vLayer.removeLayer(marker)
+        if (route) rLayer.removeLayer(route)
+        vehicleMarkersRef.current.delete(id)
+        vehicleRoutesRef.current.delete(id)
+      }
+    }
 
+    // Add or update vehicles
     vehiclesRef.current.forEach(v => {
       if (v.status === "idle") return
 
+      const existingMarker = vehicleMarkersRef.current.get(v.id)
+      const existingRoute = vehicleRoutesRef.current.get(v.id)
+      
       // Look up the building this vehicle belongs to for color mapping
       const parentBuilding = buildings.find(b => b.id === v.buildingId)
       const bType = parentBuilding?.type || "fire-station"
@@ -365,40 +406,102 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const vehicleColor = config?.color || "#3b82f6"
       const isWorking = v.status === "working"
 
-      // Draw route line for dispatched/returning vehicles
+      // Calculate appearance key for icon updates
+      const appearanceKey = `${v.status}:${bType}`
+
+      // Update or create route line - only when route structure changes
       if ((v.status === "dispatched" || v.status === "returning") && v.routeCoords.length > 1) {
         const remainingRoute = v.routeCoords.slice(Math.floor(v.routeIndex))
         if (remainingRoute.length > 1) {
           const latlngs = remainingRoute.map(c => [c.lat, c.lng] as [number, number])
-          L.polyline(latlngs, {
-            color: vehicleColor,
-            weight: 3,
-            opacity: 0.55,
-            dashArray: "8, 12",
-            className: "vehicle-route-animated",
-            pane: "routesPane",
-          }).addTo(rLayer)
+          
+          if (existingRoute) {
+            // Only update if route structure changed (not just position)
+            const routeKey = `${v.status}:${v.routeIndex}:${v.routeCoords.length}`
+            const lastRouteKey = vehicleRouteDataRef.current.get(v.id)
+            
+            if (routeKey !== lastRouteKey) {
+              existingRoute.setLatLngs(latlngs)
+              vehicleRouteDataRef.current.set(v.id, routeKey)
+            }
+          } else {
+            // Create new route
+            const route = L.polyline(latlngs, {
+              color: vehicleColor,
+              weight: 3,
+              opacity: 0.55,
+              dashArray: "8, 12",
+              className: "vehicle-route-animated",
+              pane: "routesPane",
+            })
+            route.addTo(rLayer)
+            vehicleRoutesRef.current.set(v.id, route)
+            const routeKey = `${v.status}:${v.routeIndex}:${v.routeCoords.length}`
+            vehicleRouteDataRef.current.set(v.id, routeKey)
+          }
+        }
+      } else {
+        // Remove route if vehicle doesn't need one
+        if (existingRoute) {
+          rLayer.removeLayer(existingRoute)
+          vehicleRoutesRef.current.delete(v.id)
         }
       }
 
-      const vehicleIconHtml = isWorking
-        ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
-        : getVehicleIcon(bType, vehicleColor, false)
-      const vehicleIcon = L.divIcon({
-        className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''}`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-        html: vehicleIconHtml
-      })
+      if (existingMarker) {
+        // Update position of existing marker
+        existingMarker.setLatLng([v.position.lat, v.position.lng])
+        
+        // Update icon only if appearance changed
+        const currentIcon = existingMarker.options.icon as any
+        if (currentIcon?.appearanceKey !== appearanceKey) {
+          const vehicleIconHtml = isWorking
+            ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
+            : getVehicleIcon(bType, vehicleColor, false)
+          const vehicleIcon = L.divIcon({
+            className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''}`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            html: vehicleIconHtml
+          })
+          // Store appearance key on icon for comparison
+          ;(vehicleIcon as any).appearanceKey = appearanceKey
+          existingMarker.setIcon(vehicleIcon)
+        }
+      } else {
+        // Create new marker
+        const vehicleIconHtml = isWorking
+          ? `<div class="vehicle-parked-wrapper">${getVehicleIcon(bType, vehicleColor, true)}<div class="vehicle-parked-shadow" style="background:${vehicleColor};"></div></div>`
+          : getVehicleIcon(bType, vehicleColor, false)
+        const vehicleIcon = L.divIcon({
+          className: `vehicle-marker ${isWorking ? 'vehicle-parked' : ''}`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+          html: vehicleIconHtml
+        })
+        ;(vehicleIcon as any).appearanceKey = appearanceKey
 
-      L.marker([v.position.lat, v.position.lng], {
-        pane: "vehiclesPane",
-        icon: vehicleIcon,
-        interactive: false,
-        zIndexOffset: 1000
-      }).addTo(vLayer)
+        const marker = L.marker([v.position.lat, v.position.lng], {
+          pane: "vehiclesPane",
+          icon: vehicleIcon,
+          interactive: false,
+          zIndexOffset: 1000
+        })
+        marker.addTo(vLayer)
+        vehicleMarkersRef.current.set(v.id, marker)
+      }
     })
-  }, [prevVehiclesRef.current, ready]) // Only re-render when vehicles actually change
+  }, [prevVehiclesRef.current, ready, buildings]) // Add buildings dependency for color mapping
+
+  // Update positions of existing vehicle markers without recreation
+  useEffect(() => {
+    vehicleMarkersRef.current.forEach((marker, vehicleId) => {
+      const vehicle = vehicles.find(v => v.id === vehicleId)
+      if (vehicle && vehicle.status !== "idle") {
+        marker.setLatLng([vehicle.position.lat, vehicle.position.lng])
+      }
+    })
+  }, [vehicles]) // Update positions every tick
 
   // 2.5. NPC Traffic rendering via canvas overlay
   // Canvas is placed in trafficPane so it transforms correctly with pan/zoom
@@ -449,6 +552,9 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const ctx = canvas.getContext("2d")
       const mapInstance = mapRef.current
       if (!ctx || !mapInstance) return
+
+      // Stop traffic rendering when game is paused (use ref to avoid stale closure)
+      if (pausedRef.current) return
 
       const size = mapInstance.getSize()
       ctx.clearRect(0, 0, size.x, size.y)
@@ -561,45 +667,95 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
   // 3. Tegn Oppdrag - zoom-based icons
   const isZoomedIn = zoomLevel >= 15
   
+  // Store mission markers to update without recreation
+  const missionMarkersRef = useRef<Map<string, LType.Marker>>(new Map())
+  
   useEffect(() => {
     const { missions: layer } = layersRef.current
     const L = leafletRef.current
     if (!layer || !L || !ready) return
-    layer.clearLayers()
 
+    // Only recreate when structural changes occur
+    const currentMissionIds = new Set(missions.filter(m => m.status === "pending" || m.status === "dispatched").map(m => m.id))
+    const existingMissionIds = new Set(missionMarkersRef.current.keys())
+    
+    // Remove missions that no longer exist or are completed/failed
+    for (const id of existingMissionIds) {
+      if (!currentMissionIds.has(id)) {
+        const marker = missionMarkersRef.current.get(id)
+        if (marker) {
+          layer.removeLayer(marker)
+          missionMarkersRef.current.delete(id)
+        }
+      }
+    }
+
+    // Add or update missions
     missions.filter(m => m.status === "pending" || m.status === "dispatched").forEach(m => {
+      const existingMarker = missionMarkersRef.current.get(m.id)
+      
       const missionConfig = MISSION_CONFIGS[m.type]
       const missionColor = missionConfig?.color || "#ef4444"
       const isPending = m.status === "pending"
       const urgency = m.timeRemaining / m.timeLimit
 
-      const iconHtml = isZoomedIn
-        ? missionIconZoomedIn(m.type, missionColor, isPending, urgency)
-        : missionIconZoomedOut(missionColor, isPending, urgency)
+      // Calculate appearance key for icon updates
+      const appearanceKey = `${isZoomedIn}:${m.status}:${Math.floor(urgency * 10)}`
 
-      const iconSize: [number, number] = isZoomedIn ? [44, 52] : [28, 36]
-      const iconAnchor: [number, number] = isZoomedIn ? [22, 52] : [14, 36]
+      if (existingMarker) {
+        // Update icon only if appearance changed
+        const currentIcon = existingMarker.options.icon as any
+        if (currentIcon?.appearanceKey !== appearanceKey) {
+          const iconHtml = isZoomedIn
+            ? missionIconZoomedIn(m.type, missionColor, isPending, urgency)
+            : missionIconZoomedOut(missionColor, isPending, urgency)
 
-      const marker = L.marker([m.position.lat, m.position.lng], {
-        pane: "missionsPane",
-        icon: L.divIcon({
+          const iconSize: [number, number] = isZoomedIn ? [44, 52] : [28, 36]
+          const iconAnchor: [number, number] = isZoomedIn ? [22, 52] : [14, 36]
+
+          const icon = L.divIcon({
+            className: "",
+            iconSize,
+            iconAnchor,
+            html: iconHtml,
+          })
+          ;(icon as any).appearanceKey = appearanceKey
+          existingMarker.setIcon(icon)
+        }
+      } else {
+        // Create new marker
+        const iconHtml = isZoomedIn
+          ? missionIconZoomedIn(m.type, missionColor, isPending, urgency)
+          : missionIconZoomedOut(missionColor, isPending, urgency)
+
+        const iconSize: [number, number] = isZoomedIn ? [44, 52] : [28, 36]
+        const iconAnchor: [number, number] = isZoomedIn ? [22, 52] : [14, 36]
+
+        const icon = L.divIcon({
           className: "",
           iconSize,
           iconAnchor,
           html: iconHtml,
-        }),
-        zIndexOffset: 200,
-      })
-      marker.on("click", (e) => {
-        L.DomEvent.stopPropagation(e)
-        cb.current.onSelectMission(m)
-      })
-      marker.addTo(layer)
+        })
+        ;(icon as any).appearanceKey = appearanceKey
+
+        const marker = L.marker([m.position.lat, m.position.lng], {
+          pane: "missionsPane",
+          icon,
+          zIndexOffset: 200,
+        })
+        marker.on("click", (e) => {
+          L.DomEvent.stopPropagation(e)
+          cb.current.onSelectMission(m)
+        })
+        marker.addTo(layer)
+        missionMarkersRef.current.set(m.id, marker)
+      }
     })
   }, [missions, ready, isZoomedIn])
 
   return (
-    <div className={`city-map-container ${placingBuilding ? 'is-placing' : ''}`}>
+    <div className={`city-map-container ${placingBuilding ? 'is-placing' : ''} ${isPaused ? 'is-paused' : ''}`}>
       <div ref={containerRef} className="city-map-wrapper" />
 
       {!ready && (
