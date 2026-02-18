@@ -74,7 +74,7 @@ async function fetchCarRoute(
     // silent
   }
   
-  return points
+  return []
 }
 
 // ---- Spawning helpers ----
