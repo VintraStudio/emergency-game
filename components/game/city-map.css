@@ -90,6 +90,17 @@
   50% { transform: scale(1.3); }
 }
 
+@keyframes neonPulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% { 
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+}
+
 /* Parked vehicle at mission site */
 .vehicle-parked {
   animation: none !important;

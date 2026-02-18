@@ -49,41 +49,32 @@ const BUILDING_SVG_ICONS: Record<string, string> = {
   "morgue": `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>`,
 }
 
-// Get vehicle icon based on building type
+// Get vehicle icon based on building type - now circles like NPCs
 function getVehicleIcon(buildingType: string, color: string, isWorking: boolean) {
-  const iconProps = {
-    size: 20,
-    color: color,
-    style: {
-      filter: isWorking ? 'drop-shadow(0 0 8px ' + color + ')' : 'drop-shadow(0 0 3px rgba(0,0,0,0.3))',
-      transform: 'translate(-50%, -50%)'
-    }
-  }
-
-  let iconComponent
-  switch (buildingType) {
-    case "fire-station":
-      iconComponent = <PiFireTruckFill {...iconProps} />
-      break
-    case "police-station":
-      iconComponent = <FaShieldAlt {...iconProps} />
-      break
-    case "hospital":
-    case "ambulance-station":
-    case "medical-clinic":
-      iconComponent = <GiAmbulance {...iconProps} />
-      break
-    case "road-authority":
-      iconComponent = <GiTowTruck {...iconProps} />
-      break
-    case "morgue":
-      iconComponent = <FaTruck {...iconProps} />
-      break
-    default:
-      iconComponent = <FaTruck {...iconProps} />
-  }
-
-  return renderToString(iconComponent)
+  const isOnMission = !isWorking // Working = parked at mission, not on mission
+  
+  const baseSize = 8 // Base radius like NPC cars
+  const zoomBoost = 2 // Slightly larger than NPCs for visibility
+  
+  const neonEffect = isOnMission ? `
+    filter: drop-shadow(0 0 12px ${color}) drop-shadow(0 0 8px ${color}) drop-shadow(0 0 4px ${color});
+    animation: neonPulse 1.5s ease-in-out infinite alternate;
+  ` : `filter: drop-shadow(0 0 3px rgba(0,0,0,0.3));`
+  
+  return `
+    <div style="
+      width: ${(baseSize + zoomBoost) * 2}px;
+      height: ${(baseSize + zoomBoost) * 2}px;
+      border-radius: 50%;
+      background: ${color};
+      border: 2px solid rgba(0,0,0,0.3);
+      ${neonEffect}
+      transform: translate(-50%, -50%);
+      position: relative;
+    ">
+      ${isOnMission ? '<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.8);"></div>' : ''}
+    </div>
+  `
 }
 
 function buildingIconHtml(color: string, level: number, size: number, buildingType: string) {
