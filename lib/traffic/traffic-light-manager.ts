@@ -3,7 +3,7 @@
  * Manages traffic light states at intersections with synchronized timing
  */
 
-import { RoadNode, IntersectionType } from "./road-graph"
+import { RoadNode, IntersectionType } from "../pathfinding/road-graph"
 
 export enum TrafficLightPhase {
   RED = "red",

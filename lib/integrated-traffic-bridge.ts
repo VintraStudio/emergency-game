@@ -7,8 +7,7 @@
 
 import { TrafficSystem } from "./traffic/traffic-system"
 import { Pathfinder } from "./pathfinding/pathfinder"
-import { createSampleRoadNetwork } from "./pathfinding/road-graph"
-import type { LatLng } from "./game-types"
+import { createSampleRoadNetwork, LatLng } from "./pathfinding/road-graph"
 
 let trafficSystem: TrafficSystem | null = null
 let pathfinder: Pathfinder | null = null
