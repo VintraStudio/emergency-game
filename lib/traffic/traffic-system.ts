@@ -457,4 +457,17 @@ export class TrafficSystem {
     this.config.timeScale = scale
     this.trafficLightManager.setTimeScale(scale)
   }
+
+  /**
+   * Update viewport bounds for spatial grid
+   */
+  updateViewportBounds(bounds: {
+    north: number
+    south: number
+    east: number
+    west: number
+  }): void {
+    this.spatialGrid.updateViewportBounds(bounds)
+    this.spawner.updateViewportBounds(bounds)
+  }
 }
