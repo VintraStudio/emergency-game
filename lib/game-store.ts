@@ -14,6 +14,7 @@ import type {
 } from "./game-types"
 import { BUILDING_CONFIGS, MISSION_CONFIGS } from "./game-types"
 import { getTrafficDensity, tickTraffic } from "./traffic-manager"
+import { getRoute, interpolateRoute } from "./route-service" 
 
 let nextId = 1
 function genId(prefix: string) {
@@ -90,62 +91,7 @@ function applyRouteToVehicle(vehicleId: string, routeCoords: LatLng[]) {
 }
 
 // --- OSRM routing ---
-// Uses the public OSRM demo server for route calculation.
-// Retries up to 2 times on failure with a small delay so we almost always get
-// a real road-network route instead of a straight-line fallback.
-async function fetchRoute(from: LatLng, to: LatLng): Promise<LatLng[]> {
-  const maxRetries = 2
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      if (data.code === "Ok" && data.routes && data.routes.length > 0) {
-        const coords = data.routes[0].geometry.coordinates as [number, number][]
-        if (coords.length >= 2) {
-          return coords.map(([lng, lat]) => ({ lat, lng }))
-        }
-      }
-    } catch (e) {
-      if (attempt < maxRetries) {
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
-        continue
-      }
-      console.warn("[v0] OSRM route fetch failed after retries, using interpolated path", e)
-    }
-  }
-  // Fallback: road-like interpolated path with lateral jitter to avoid
-  // rendering a perfectly straight line through terrain
-  return interpolateRoute(from, to)
-}
-
-// Fallback interpolation when OSRM is unavailable.
-// Creates a path with slight random lateral offsets at each waypoint so it
-// looks less like a straight laser-line through buildings.
-function interpolateRoute(from: LatLng, to: LatLng): LatLng[] {
-  const steps = 30
-  const points: LatLng[] = []
-  const dLat = to.lat - from.lat
-  const dLng = to.lng - from.lng
-  // perpendicular unit vector for lateral jitter
-  const len = Math.sqrt(dLat * dLat + dLng * dLng) || 0.001
-  const perpLat = -dLng / len
-  const perpLng = dLat / len
-  const jitterScale = len * 0.08 // max ~8% of route length
-
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps
-    // No jitter on start/end; sinusoidal envelope in the middle
-    const envelope = Math.sin(Math.PI * t)
-    const jitter = (Math.random() - 0.5) * jitterScale * envelope
-    points.push({
-      lat: from.lat + dLat * t + perpLat * jitter,
-      lng: from.lng + dLng * t + perpLng * jitter,
-    })
-  }
-  return points
-}
+// Replaced by route-service.ts with improved throttling, caching, and circuit breaker
 
 // Helper: sync buildings[].vehicles with state.vehicles after each update
 function syncBuildingsWithVehicles(nextVehicles: Vehicle[]) {
@@ -606,7 +552,7 @@ export function useGameActions() {
     // Fetch real OSRM road routes asynchronously; once resolved, set status to "dispatched"
     // and start moving with the actual road geometry ONLY when route is ready
     for (const veh of availableVehicles) {
-      const routePromise = fetchRoute(veh.position, mission.position).then((routeCoords) => {
+      const routePromise = getRoute(veh.position, mission.position).then((routeCoords: LatLng[]) => {
         // Read current vehicle state to preserve progress
         const currentVeh = state.vehicles.find((v) => v.id === veh.id)
         if (!currentVeh || currentVeh.status !== "preparing") {
@@ -614,37 +560,27 @@ export function useGameActions() {
           return routeCoords
         }
 
-        // Update vehicle with real route and change status to "dispatched"
-        // Only now can the vehicle start moving
+        // Create nextVehicles first for atomic state update
+        const nextVehicles = state.vehicles.map((v) =>
+          v.id === veh.id
+            ? {
+                ...v,
+                status: "dispatched" as VehicleStatus,
+                routeCoords,
+                routeIndex: 0,
+                preparationTimeRemaining: undefined,
+              }
+            : v,
+        )
+
         state = {
           ...state,
-          vehicles: state.vehicles.map((v) =>
-            v.id === veh.id
-              ? { 
-                  ...v, 
-                  status: "dispatched" as VehicleStatus,
-                  routeCoords: routeCoords, 
-                  routeIndex: 0,
-                  preparationTimeRemaining: undefined
-                }
-              : v,
-          ),
-          buildings: syncBuildingsWithVehicles(state.vehicles.map((v) =>
-            v.id === veh.id
-              ? { 
-                  ...v, 
-                  status: "dispatched" as VehicleStatus,
-                  routeCoords: routeCoords, 
-                  routeIndex: 0,
-                  preparationTimeRemaining: undefined
-                }
-              : v,
-          )),
+          vehicles: nextVehicles,
+          buildings: syncBuildingsWithVehicles(nextVehicles),
         }
         pendingRoutes.delete(veh.id)
         emit()
         
-        pendingRoutes.delete(veh.id)
         return routeCoords
       })
       pendingRoutes.set(veh.id, routePromise)
@@ -724,7 +660,7 @@ export function useGameActions() {
             // Give an immediate fallback route so vehicle starts returning instantly
             const fallbackReturn = interpolateRoute(v.position, building.position)
             // Also fetch real route in background
-            const returnPromise = fetchRoute(v.position, building.position).then((routeCoords) => {
+            const returnPromise = getRoute(v.position, building.position).then((routeCoords: LatLng[]) => {
               applyRouteToVehicle(v.id, routeCoords)
               return routeCoords
             })
@@ -794,7 +730,7 @@ export function useGameActions() {
               if (building && (v.status === "dispatched" || v.status === "working")) {
                 // Give an immediate fallback route for return
                 const fallbackReturn = interpolateRoute(v.position, building.position)
-                const returnPromise = fetchRoute(v.position, building.position).then((routeCoords) => {
+                const returnPromise = getRoute(v.position, building.position).then((routeCoords: LatLng[]) => {
                   applyRouteToVehicle(v.id, routeCoords)
                   return routeCoords
                 })

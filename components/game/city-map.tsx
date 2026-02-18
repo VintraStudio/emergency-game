@@ -410,8 +410,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
   }, [prevVehiclesRef.current, ready]) // Only re-render when vehicles actually change
 
   // 2.5. NPC Traffic rendering via canvas overlay
-  // Canvas is placed directly on the map container (not inside a Leaflet pane)
-  // so it doesn't get transformed on pan/zoom. We use latLngToContainerPoint for positioning.
+  // Canvas is placed in trafficPane so it transforms correctly with pan/zoom
   const trafficCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const trafficZoomRef = useRef(zoomLevel)
   trafficZoomRef.current = zoomLevel
@@ -420,65 +419,75 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
     const map = mapRef.current
     if (!map || !ready) return
 
-    // Create canvas on top of the map container
-    const container = map.getContainer()
+    const pane = map.getPane("trafficPane")! // <-- pane du allerede lager
     const canvas = document.createElement("canvas")
+    canvas.className = "leaflet-layer"
     canvas.style.position = "absolute"
     canvas.style.top = "0"
     canvas.style.left = "0"
-    canvas.style.width = "100%"
-    canvas.style.height = "100%"
     canvas.style.pointerEvents = "none"
     canvas.style.zIndex = "400"
-    container.appendChild(canvas)
+    pane.appendChild(canvas)
     trafficCanvasRef.current = canvas
 
     function resizeCanvas() {
-      canvas.width = container.clientWidth
-      canvas.height = container.clientHeight
+      // HiDPI (crisp)
+      const mapInstance = mapRef.current
+      if (!mapInstance) return
+      const dpr = window.devicePixelRatio || 1
+      const w = mapInstance.getSize().x
+      const h = mapInstance.getSize().y
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+      canvas.style.width = `${w}px` 
+      canvas.style.height = `${h}px` 
+      const ctx = canvas.getContext("2d")
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
-    resizeCanvas()
-    map.on("resize", resizeCanvas)
 
-    // Render loop for traffic cars
-    let frameId: ReturnType<typeof setInterval>
-    
+    resizeCanvas()
+    const mapInstance = mapRef.current
+    if (mapInstance) {
+      mapInstance.on("resize", resizeCanvas)
+    }
+
+    // Render loop
+    const frameId = setInterval(renderTraffic, 80)
+
     function renderTraffic() {
       const ctx = canvas.getContext("2d")
-      if (!ctx || !map) return
+      const mapInstance = mapRef.current
+      if (!ctx || !mapInstance) return
 
-      if (canvas.width !== container.clientWidth || canvas.height !== container.clientHeight) {
-        canvas.width = container.clientWidth
-        canvas.height = container.clientHeight
-      }
+      const size = mapInstance.getSize()
+      ctx.clearRect(0, 0, size.x, size.y)
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-      // Only render cars visually when zoomed in (>= 15)
-      // Traffic density still affects units at all zoom levels
       const currentZoom = trafficZoomRef.current
       if (currentZoom < 15) return
 
-      // Tiny radius that scales slightly with zoom
       const baseRadius = 2
       const zoomBoost = Math.max(0, (currentZoom - 15) * 0.4)
-
       const cars = getCars()
+
       for (const car of cars) {
-        const point = map.latLngToContainerPoint([car.lat, car.lng])
-        
-        // Skip cars outside visible area
-        if (point.x < -10 || point.x > canvas.width + 10 || point.y < -10 || point.y > canvas.height + 10) continue
+        // Fix 3: Lane offset - move cars slightly to the right in their driving direction
+        const LANE_OFFSET = 0.000018 // ~1–2 meter-ish. Juster litt.
+        const rightLat = -Math.sin(car.heading)
+        const rightLng = Math.cos(car.heading)
+        const drawLat = car.lat + rightLat * LANE_OFFSET
+        const drawLng = car.lng + rightLng * LANE_OFFSET
+
+        // ✅ riktig når canvas ligger i trafficPane:
+        const point = mapInstance.latLngToLayerPoint([drawLat, drawLng])
+        if (point.x < -10 || point.x > size.x + 10 || point.y < -10 || point.y > size.y + 10) continue
 
         const r = baseRadius + zoomBoost
 
-        // Tiny shadow
         ctx.beginPath()
         ctx.arc(point.x + 0.5, point.y + 0.5, r, 0, Math.PI * 2)
         ctx.fillStyle = "rgba(0,0,0,0.3)"
         ctx.fill()
-        
-        // Car dot
+
         ctx.beginPath()
         ctx.arc(point.x, point.y, r, 0, Math.PI * 2)
         ctx.fillStyle = car.color
@@ -486,14 +495,10 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       }
     }
 
-    frameId = setInterval(renderTraffic, 80) // ~12fps for smooth traffic
-
     return () => {
       clearInterval(frameId)
       map.off("resize", resizeCanvas)
-      if (canvas.parentNode === container) {
-        container.removeChild(canvas)
-      }
+      if (canvas.parentNode === pane) pane.removeChild(canvas)
       trafficCanvasRef.current = null
     }
   }, [ready])

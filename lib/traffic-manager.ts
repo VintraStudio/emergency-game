@@ -13,6 +13,8 @@
  * This module is standalone (not in React state) to avoid re-renders.
  */
 
+import { getRoute } from "./route-service"
+
 export interface TrafficCar {
   id: number
   lat: number
@@ -47,7 +49,7 @@ const CAR_COLORS = [
 const TARGET_CARS = 28
 const INTERSECTION_STOP_TICKS_MIN = 10    // ~1s minimum stop
 const INTERSECTION_STOP_TICKS_MAX = 30    // ~3s max stop
-const FOLLOWING_DISTANCE = 0.00012        // ~13m safe distance
+const FOLLOWING_DISTANCE = 0.00007        // ~8m safe distance (reduced from 13m)
 const ROUTE_FETCH_CONCURRENCY = 3         // max parallel OSRM requests
 
 // Viewport bounds
@@ -58,23 +60,6 @@ let isActive = false
 const cars: TrafficCar[] = []
 let nextCarId = 0
 let pendingRouteFetches = 0
-
-// ----- OSRM route fetching (same API as game units) -----
-
-async function fetchCarRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ lat: number; lng: number }[]> {
-  try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
-    const res = await fetch(url)
-    if (!res.ok) return []
-    const data = await res.json()
-    if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates?.length >= 2) {
-      return data.routes[0].geometry.coordinates.map(([lng, lat]: [number, number]) => ({ lat, lng }))
-    }
-  } catch {
-    // Silently fail -- car will be recycled
-  }
-  return []
-}
 
 // Generate a random start point at the edge of the viewport (or slightly outside)
 function randomEdgePoint(): { lat: number; lng: number } {
@@ -132,7 +117,7 @@ function createCar(): TrafficCar {
 async function assignRoute(car: TrafficCar) {
   pendingRouteFetches++
   const dest = randomDestination(car)
-  const route = await fetchCarRoute({ lat: car.lat, lng: car.lng }, dest)
+  const route = await getRoute({ lat: car.lat, lng: car.lng }, dest)
   pendingRouteFetches--
 
   if (route.length >= 2) {
@@ -185,7 +170,14 @@ function hasCarAhead(car: TrafficCar): boolean {
     const angleToOther = Math.atan2(dLng, dLat)
     let headingDiff = Math.abs(angleToOther - car.heading)
     if (headingDiff > Math.PI) headingDiff = 2 * Math.PI - headingDiff
-    if (headingDiff < Math.PI / 2) return true
+    if (headingDiff >= Math.PI / 2) continue
+
+    // NY: må også kjøre omtrent samme retning, ellers lar vi dem passere
+    let dirDiff = Math.abs(other.heading - car.heading)
+    if (dirDiff > Math.PI) dirDiff = 2 * Math.PI - dirDiff
+    if (dirDiff > Math.PI / 3) continue // > 60° = regn som "ikke samme fil/retning"
+
+    return true
   }
   return false
 }
