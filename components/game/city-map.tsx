@@ -19,7 +19,6 @@ import { FaHeartbeat } from "react-icons/fa"
 import { FaTruck } from "react-icons/fa"
 import { renderToString } from "react-dom/server"
 import { getCars, updateViewBounds, startTraffic, stopTraffic } from "@/lib/traffic-manager"
-import { initializeTrafficSystem, updateViewportBounds as updateIntegratedViewportBounds, getNPCVehicles } from "@/lib/integrated-traffic-bridge"
 import "leaflet/dist/leaflet.css"
 import "./city-map.css"
 
@@ -264,7 +263,6 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
           west: b.getWest(),
         }
         updateViewBounds(bounds)
-        updateIntegratedViewportBounds(bounds)
       })
 
       // Update traffic bounds on map move
@@ -277,10 +275,9 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
           west: b.getWest(),
         }
         updateViewBounds(bounds)
-        updateIntegratedViewportBounds(bounds)
       })
 
-      // Initialize traffic systems with current viewport
+      // Initialize traffic system with current viewport
       const initialBounds = map.getBounds()
       const bounds = {
         north: initialBounds.getNorth(),
@@ -289,8 +286,6 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
         west: initialBounds.getWest(),
       }
       updateViewBounds(bounds)
-      initializeTrafficSystem(bounds)
-      updateIntegratedViewportBounds(bounds)
       startTraffic()
 
       mapRef.current = map
@@ -442,29 +437,7 @@ map.getPane("buildingsPane")!.style.zIndex = "800"
       const r = baseRadius + zoomBoost
 
       const cars = getCars()
-      const npcVehicles = getNPCVehicles()
-      
-      // Convert NPC vehicles to car format for rendering
-      const allVehicles = [
-        ...cars,
-        ...npcVehicles.map((npc) => ({
-          id: npc.id,
-          lat: npc.position.lat,
-          lng: npc.position.lng,
-          color: npc.isEmergency ? "#ff4444" : "#4a5568",
-          routeCoords: [],
-          routeIndex: 0,
-          speed: 0,
-          heading: 0,
-          stoppedTicks: 0,
-          active: true,
-          routePending: false,
-          nextRoute: null,
-          nextRoutePending: false,
-        })),
-      ]
-      
-      for (const car of allVehicles) {
+      for (const car of cars) {
         const point = map.latLngToContainerPoint([car.lat, car.lng])
         
         // Skip cars outside visible area

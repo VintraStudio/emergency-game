@@ -16,7 +16,6 @@ import type {
 import { BUILDING_CONFIGS, MISSION_CONFIGS } from "./game-types"
 import { getTrafficDensity, tickTraffic } from "./traffic-manager"
 import { getRouteQueued } from "./route-service"
-import { calculateDispatchRoute, initializeTrafficSystem, updateTrafficSystem, updateViewportBounds, setTrafficTimeScale, getNPCVehicles } from "./integrated-traffic-bridge"
 
 let nextId = 1
 function genId(prefix: string) {
@@ -347,18 +346,17 @@ const dispatchVehicle = (missionId: string) => {
     ),
   }
 
-  // Start vehicles immediately on road-based routes
+  // Start vehicles immediately on fallback routes, upgrade to OSRM in background
   for (const veh of availableVehicles) {
-    // Use integrated pathfinding that prefers road network
-    const roadRoute = calculateDispatchRoute(veh.position, mission.position, mission.type === "fire")
-    
+    const fb = fallbackRoute(veh.position, mission.position)
+
     const nextVehicles = state.vehicles.map((v) =>
       v.id === veh.id
         ? {
             ...v,
             status: "dispatched" as VehicleStatus,
             missionId: mission.id,
-            routeCoords: roadRoute,
+            routeCoords: fb,
             routeIndex: 0,
           }
         : v
@@ -371,7 +369,6 @@ const dispatchVehicle = (missionId: string) => {
     }
     emit()
 
-    // Try to upgrade to better route from OSRM in background if available
     const p = getRouteQueued(veh.position, mission.position)
       .then((osrmRoute) => {
         const current = state.vehicles.find((v) => v.id === veh.id)
@@ -409,10 +406,6 @@ const tick = () => {
 
   const gameMinutesDelta = (realDeltaMs / 1000) * state.gameSpeed
   const newGameTime = state.gameTime + gameMinutesDelta * 60000
-
-  // Update integrated traffic system
-  updateTrafficSystem(realDeltaMs / 1000)
-  setTrafficTimeScale(state.gameSpeed)
 
   // Optional: advance traffic simulation
   tickTraffic(gameMinutesDelta)
@@ -456,8 +449,8 @@ const tick = () => {
       if (remaining <= 0) {
         const building = state.buildings.find((b) => b.id === v.buildingId)
         if (building) {
-          // Start returning immediately via road-based route
-          const returnRoute = calculateDispatchRoute(v.position, building.position, false)
+          // Start returning immediately via fallback, then upgrade in background
+          const fallbackReturn = fallbackRoute(v.position, building.position)
 
           const p = getRouteQueued(v.position, building.position).then((routeCoords) => {
             applyRouteToVehicle(v.id, routeCoords)
@@ -469,7 +462,7 @@ const tick = () => {
             ...v,
             status: "returning" as VehicleStatus,
             workTimeRemaining: 0,
-            routeCoords: returnRoute,
+            routeCoords: fallbackReturn,
             routeIndex: 0,
           }
         }
